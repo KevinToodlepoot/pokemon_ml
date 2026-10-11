@@ -1,0 +1,297 @@
+[
+  {
+    "name": "single natural Illusion: lost apparent Iron Ball versus private Choice Scarf",
+    "seed": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "rosters": [
+      [
+        {
+          "species": "zoroark",
+          "ability": "illusion",
+          "item": "ironball",
+          "moves": [
+            "fling",
+            "darkpulse",
+            "taunt",
+            "protect"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "snorlax",
+          "ability": "thickfat",
+          "item": "leftovers",
+          "moves": [
+            "protect",
+            "bodyslam",
+            "rest",
+            "sleeptalk"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "raichu",
+          "ability": "static",
+          "item": "lightball",
+          "moves": [
+            "protect",
+            "thunderbolt",
+            "voltswitch",
+            "thunderwave"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "heliolisk",
+          "ability": "dryskin",
+          "item": "choicescarf",
+          "moves": [
+            "thunderbolt",
+            "voltswitch",
+            "protect",
+            "hypervoice"
+          ],
+          "sp": [
+            14,
+            15,
+            19,
+            2,
+            8,
+            8
+          ],
+          "nature": "Quiet",
+          "gender": "M"
+        },
+        {
+          "species": "salamence",
+          "ability": "intimidate",
+          "item": "mentalherb",
+          "moves": [
+            "protect",
+            "dragonclaw",
+            "crunch",
+            "earthquake"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "pelipper",
+          "ability": "drizzle",
+          "item": "sitrusberry",
+          "moves": [
+            "protect",
+            "surf",
+            "hurricane",
+            "roost"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        }
+      ],
+      [
+        {
+          "species": "passimian",
+          "ability": "defiant",
+          "item": "choicescarf",
+          "moves": [
+            "drainpunch",
+            "knockoff",
+            "uturn",
+            "protect"
+          ],
+          "sp": [
+            5,
+            11,
+            7,
+            12,
+            14,
+            17
+          ],
+          "nature": "Calm",
+          "gender": "M"
+        },
+        {
+          "species": "umbreon",
+          "ability": "innerfocus",
+          "item": "leftovers",
+          "moves": [
+            "protect",
+            "wish",
+            "foulplay",
+            "snarl"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "forretress",
+          "ability": "sturdy",
+          "item": "mentalherb",
+          "moves": [
+            "protect",
+            "spikes",
+            "rapidspin",
+            "gyroball"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "florges",
+          "ability": "flowerveil",
+          "item": "sitrusberry",
+          "moves": [
+            "protect",
+            "moonblast",
+            "wish",
+            "synthesis"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "F"
+        },
+        {
+          "species": "raichu",
+          "ability": "static",
+          "item": "lightball",
+          "moves": [
+            "protect",
+            "thunderbolt",
+            "voltswitch",
+            "thunderwave"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        },
+        {
+          "species": "heliolisk",
+          "ability": "dryskin",
+          "item": "expertbelt",
+          "moves": [
+            "protect",
+            "thunderbolt",
+            "voltswitch",
+            "hypervoice"
+          ],
+          "sp": [
+            32,
+            0,
+            0,
+            0,
+            2,
+            32
+          ],
+          "nature": "Hardy",
+          "gender": "M"
+        }
+      ]
+    ],
+    "picks": [
+      [
+        0,
+        1,
+        2,
+        3
+      ],
+      [
+        0,
+        1,
+        2,
+        3
+      ]
+    ],
+    "choices": [
+      [
+        "move 1 1, move 1",
+        "move 1 2, move 1"
+      ],
+      [
+        "switch 4, move 1",
+        "move 1 2, move 1"
+      ],
+      [
+        "move 1 2, move 1",
+        "move 1 2, move 1"
+      ]
+    ]
+  }
+]

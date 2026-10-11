@@ -307,6 +307,14 @@ pub struct Pokemon {
     pub speed: i32,
     /// The move this Pokémon last used since coming in (`NO_MOVE` if none), and where it aimed it.
     pub last_move: u16,
+    /// Last queued move named in the public log, including a Choice-item refusal.
+    /// Separate from `last_move`, which mechanics use. None for imported legacy states.
+    pub last_attempted_move: Option<u16>,
+    /// Move slots whose remaining PP cannot be recovered from the public log.
+    /// Exact mechanical PP is still kept in `moves`; the next move request clears these bits.
+    pub unknown_pp: u8,
+    /// The corresponding mask for its original moves during Transform.
+    pub base_unknown_pp: u8,
     pub(crate) last_move_loc: i8,
     /// How many times it has started to move since coming in (Fake Out works while this is at most 1).
     pub active_move_actions: u8,
@@ -656,6 +664,8 @@ pub(crate) struct Action {
     pub self_target: bool,
     /// What put this move at the head of the queue, if it matters to the move (`action.sourceEffect`).
     pub source: ActSource,
+    /// Encore replaced this action and discarded its selected target.
+    pub target_replaced: bool,
 }
 
 /// `action.sourceEffect` of a queued move.
@@ -702,6 +712,7 @@ impl Queue {
             orig_target: None,
             self_target: false,
             source: ActSource::None,
+            target_replaced: false,
         };
         Queue { len: 0, items: [blank; QUEUE_CAP] }
     }
@@ -962,6 +973,10 @@ pub(crate) const MAX_SECS: usize = 3;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ActiveMove {
     pub id: u16,
+    /// PP payer whose randomly selected target is not otherwise publicly identifiable.
+    /// Used only when Showdown strips the target from a failed move's log.
+    pub hidden_pp_slot: Option<u8>,
+    pub target_replaced: bool,
     pub typ: Type,
     pub category: Category,
     pub base_power: u16,
@@ -1052,6 +1067,8 @@ impl ActiveMove {
         }
         ActiveMove {
             id,
+            hidden_pp_slot: None,
+            target_replaced: false,
             typ: d.typ,
             category: d.category,
             base_power: d.base_power,

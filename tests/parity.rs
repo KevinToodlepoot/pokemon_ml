@@ -28,6 +28,18 @@ fn recorded_battles_match_showdown() {
     assert!(decisions > 100);
 }
 
+#[test]
+fn expiring_terrain_clears_a_replacement_created_during_residuals() {
+    let case: Case = serde_json::from_str(include_str!("fixtures/terrain_replacement.jsonl")).unwrap();
+    for mode in [Rebuild::No, Rebuild::ByHand] {
+        match check_case_with(&case, mode) {
+            Outcome::Pass(n) => assert_eq!(n, 8),
+            Outcome::Unsupported(why) => panic!("unsupported terrain regression: {why}"),
+            Outcome::Fail(report) => panic!("terrain replacement differs from Showdown: {}", report.join("\n")),
+        }
+    }
+}
+
 /// The same battles with the position written down and the battle built back
 /// from it at every decision (`Battle::to_state`, `Battle::from_state`): the
 /// rebuilt battle must be in the same position and go on matching Showdown,

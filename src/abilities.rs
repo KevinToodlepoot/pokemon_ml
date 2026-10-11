@@ -734,6 +734,10 @@ impl Battle {
                 let wanted: Vec<Type> = types.iter().copied().filter(|&t| t != Type::None).collect();
                 if current[..n] != wanted[..] && self.set_type(holder, types) {
                     // `-start|pokemon|typechange|…|[from] ability: Mimicry`, or `-activate|pokemon|ability: Mimicry`.
+                    // A later explicit reset supersedes this turn's Reflect Type
+                    // knowledge, including the silent restoration of base types.
+                    let said = &mut self.mon_mut(holder).said;
+                    (said.copied, said.copied_foe, said.told) = (false, false, false);
                     self.show_ability(holder, ability);
                 }
                 Res::Undef

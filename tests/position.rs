@@ -49,6 +49,60 @@ fn moves_offered(b: &Battle, side: usize, pos: usize) -> Vec<u8> {
 const PROTECT: [Choice; 2] = [Choice::Move { slot: 0, target: 0, mega: false }; 2];
 
 #[test]
+fn a_choice_refusal_records_an_attempt_without_using_the_move_or_pp() -> Result<(), Error> {
+    let mut locked = mon("Snorlax", &["Body Slam", "Rest"])
+        .item("Choice Scarf")
+        .volatile(CondState { move_id: "bodyslam".into(), ..CondState::new("choicelock") });
+    locked.last_move = "bodyslam".into();
+    let mut state = position(side(mon("Jolteon", &["Magic Room"]), bystander()), side(locked, bystander()));
+    state.pseudo_weather.push(CondState::new("magicroom").turns(2));
+    let mut b = Battle::from_state(&state)?;
+    let r = b.active(1, 0);
+    let before = b.mon(r).moves[1].pp;
+    b.choose([[PROTECT[0], PROTECT[0]], [Choice::Move { slot: 1, target: 0, mega: false }, PROTECT[0]]])?;
+    let m = b.mon(r);
+    let rest = vgc_engine::data::move_id("rest").unwrap();
+    assert_eq!(m.last_attempted_move, Some(rest));
+    assert_eq!(m.last_move, vgc_engine::data::move_id("bodyslam").unwrap());
+    assert_eq!(m.moves[1].pp, before, "refusal occurs before PP deduction");
+    let rebuilt = Battle::from_state(&BattleState::from_json(&b.to_state().to_json())?)?;
+    assert_eq!(rebuilt.mon(r).last_attempted_move, Some(rest));
+    assert_eq!(rebuilt.mon(r).last_move, m.last_move);
+    Ok(())
+}
+
+#[test]
+fn an_ordinary_failed_move_is_used_and_spends_pp() -> Result<(), Error> {
+    let mut user = mon("Snorlax", &["Body Slam", "Rest"]);
+    user.last_move = "bodyslam".into();
+    let mut b = Battle::from_state(&position(side(user, bystander()), side(bystander(), bystander())))?;
+    let r = b.active(0, 0);
+    let before = b.mon(r).moves[1].pp;
+    b.choose([[Choice::Move { slot: 1, target: 0, mega: false }, PROTECT[0]], PROTECT])?;
+    let m = b.mon(r);
+    let rest = vgc_engine::data::move_id("rest").unwrap();
+    assert_eq!((m.last_move, m.last_attempted_move), (rest, Some(rest)));
+    assert_eq!(m.moves[1].pp, before - 1, "Rest fails at full HP after beginning");
+    Ok(())
+}
+
+#[test]
+fn benched_pp_uncertainty_survives_rebuild_and_clears_on_a_move_request() -> Result<(), Error> {
+    let mut state = position(side(bystander(), bystander()), side(bystander(), bystander()));
+    let benched = &mut state.sides[0].pokemon[2];
+    benched.unknown_pp = 1;
+    benched.moves[0].pp = Some(7);
+    let b = Battle::from_state(&state)?;
+    let saved = BattleState::from_json(&b.to_state().to_json())?;
+    let mut b = Battle::from_state(&saved)?;
+    assert_eq!((b.sides[0].team[2].unknown_pp, b.sides[0].team[2].moves[0].pp), (1, 7));
+    b.choose([[Choice::Switch { to: 2 }, PROTECT[0]], PROTECT])?;
+    let m = b.mon(b.active(0, 0));
+    assert_eq!((m.unknown_pp, m.moves[0].pp), (0, 7), "request reveals PP without altering it");
+    Ok(())
+}
+
+#[test]
 fn a_rebuilt_battle_plays_out_the_same() -> Result<(), Error> {
     let set = |species, moves: &[&str], ability, item| {
         PokemonSet::from_names(species, moves, "Hardy", [0; 6])?.ability(ability)?.item(item)

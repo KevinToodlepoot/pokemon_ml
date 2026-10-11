@@ -1,0 +1,196 @@
+{
+  "issues": [
+    {
+      "id": "OBS-NEW-001",
+      "title": "Confusion self-damage leaves a pending Instruct repeat attached to the later normal move",
+      "status": "confirmed; not fixed",
+      "component": "follower action/order tracking",
+      "cases": [
+        "general-09-battle-235"
+      ],
+      "first_step": 6,
+      "first_side": 1,
+      "cause": "Showdown confusion self-damage returns false without a cant or move line. The follower only begins/consumes an Instruct repeat on move/cant, so the pending instructed flag survives the failed repeat and incorrectly marks the later queued Moonblast as immediate. The client then loses valid ordinary-queue Speed comparisons for Sinistcha and derives different item-class and moves-first features.",
+      "evidence": [
+        "Showdown data/moves.ts:9662 prioritizes a separate Instruct action",
+        "Showdown data/conditions.ts:186-196 confusion logs activation and damage, then returns false without cant",
+        "src/follow.rs:1831 sets the pending instructed flag; src/follow.rs:1979 confusion damage only clears move-ending volatiles; src/follow.rs:2584 treats instructed actions as order 3",
+        "Diagnostic insertion of a synthetic cant before the confusion self-damage removes all differences in this recording; this is not an official Showdown log or an engine fix"
+      ],
+      "potential_fix": "Consume and record the failed Instruct action when confusion self-damage ends it, keeping the subsequent queued move independent. Preserve ordinary confusion and sleep/called-move behavior; regression should cover both instructed self-damage and the later normal action.",
+      "mechanics_divergence": false,
+      "baseline": "Reproduces with frozen pre-fix binaries; predates these fixes.",
+      "totals": {
+        "cases": 1,
+        "observations": 1,
+        "actionable": 1,
+        "scalar_differences": 6,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-002",
+      "title": "Explicit Mimicry type change is overwritten by stale Reflect Type settlement",
+      "status": "confirmed; not fixed",
+      "component": "follower type knowledge",
+      "cases": [
+        "general-14-battle-982",
+        "airborne-open-battle-350"
+      ],
+      "first_step": 8,
+      "first_side": 0,
+      "cause": "Reflect Type marks copied_foe and stores prior Ground/Steel types. A later public Mimicry Psychic typechange updates types but leaves those flags set. On the turn line, the follower sees no silent type revelation and restores the prior Ground/Steel types. Training correctly clears the copy flags on Mimicry, and full-state mechanics match Showdown.",
+      "evidence": [
+        "Showdown data/abilities.ts:2606-2611 setType and explicit typechange for active terrain",
+        "Showdown sim/pokemon.ts:2124-2127 marks the newly set type known and apparent",
+        "src/follow.rs:2057 explicit typechange branch updates types/added only; turn settlement at src/follow.rs:1285 uses stale copied_foe",
+        "Three observations differ, each with three type flags; all 19 mechanics decisions match"
+      ],
+      "potential_fix": "An explicit non-copy typechange must terminate prior Reflect Type copy bookkeeping. Clear copied/copied_foe while preserving the distinction between a normal explicit change and a silent end-of-turn revelation. Test Reflect Type followed by Mimicry, Mimicry followed by Reflect Type, and Reflect Type followed by Soak.",
+      "mechanics_divergence": false,
+      "baseline": "Pre-fix comparator reports zero differences; the prior training and client shared the stale-copy restoration. Showdown explicitly announces Psychic, confirming that current training is correct and the client remains wrong.",
+      "totals": {
+        "cases": 2,
+        "observations": 4,
+        "actionable": 4,
+        "scalar_differences": 11,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-003",
+      "title": "Ghost Curse rerolls an allied target but the follower uses static Normal targeting",
+      "status": "confirmed; not fixed",
+      "component": "follower Pressure PP inference",
+      "cases": [
+        "mental-herb-open-battle-183",
+        "mental-herb-open-battle-829",
+        "choice-swap-open-battle-112",
+        "choice-swap-closed-battle-68"
+      ],
+      "cause": "For a Ghost user, Curse aimed at an ally changes its executed target to randomNormal. A failed Curse hides that randomly chosen foe. Training uses the executed target; the follower uses static Normal metadata and does not infer an unaimed move for the chosen allied target. It deducts only base PP, missing either a known extra Pressure cost or the unknown-PP sentinel for mixed Pressure foes.",
+      "evidence": [
+        "Showdown data/moves.ts:3276-3281 changes Ghost Curse to randomNormal for missing/allied targets",
+        "src/follow.rs:1556 uses static MOVES target for unaimed; src/moves.rs:345 uses the modified ActiveMove target",
+        "case 68 has two Pressure foes: training reports 10/12 versus client 11/12; the other three cases have mixed Pressure and training reports unknown while client reports an exact count"
+      ],
+      "potential_fix": "Classify Curse using the executed target category and the user\u2019s Ghost type, including allied/no-target rerolls. Preserve exact PP when all remaining foes have the same Pressure cost; otherwise hide PP on targetless failure until an exact request arrives. Test ally-targeted Ghost Curse, enemy-targeted Ghost Curse and non-Ghost self Curse.",
+      "mechanics_divergence": false,
+      "totals": {
+        "cases": 4,
+        "observations": 4,
+        "actionable": 0,
+        "scalar_differences": 4,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-004",
+      "title": "A later Mental Herb cure erases evidence of an already replaced Encore action",
+      "status": "confirmed; not fixed",
+      "component": "follower queued-action provenance and Speed inference",
+      "cases": [
+        "choice-swap-closed-battle-711"
+      ],
+      "first_step": 2,
+      "first_side": 1,
+      "cause": "Encore replaces queued Thrash with Head Smash while Basculegion lacks Mental Herb. Rotom then transfers a Mental Herb through Trick, curing Encore, but Showdown keeps the already-replaced Head Smash action. The follower unconditionally clears overridden when Encore ends, losing that queue provenance and deriving different Speed bounds.",
+      "evidence": [
+        "Champions Encore data/mods/champions/moves.ts:329-336 changes the action only when the target does not already hold Mental Herb",
+        "src/follow.rs:1808 clears overridden on Encore end; queued_since subsequently loses the replacement time",
+        "Moving only the cure line after Head Smash in a diagnostic copy removes all 11 observation differences; the original recording is unchanged"
+      ],
+      "potential_fix": "Separate the active Encore condition from irreversible same-turn queued-action replacement evidence. A herb present before Encore prevents replacement; a herb gained afterward cures the condition without undoing the replacement. Preserve the replacement\u2019s target/Speed inference metadata through the turn.",
+      "mechanics_divergence": false,
+      "totals": {
+        "cases": 1,
+        "observations": 11,
+        "actionable": 10,
+        "scalar_differences": 11,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-005",
+      "title": "Own Speed inference trusts an Illusion alias\u2019s public item over the private request",
+      "status": "confirmed; not fixed",
+      "component": "follower private item knowledge under Illusion",
+      "cases": [
+        "choice-swap-open-battle-757",
+        "speed-order-open-battle-402"
+      ],
+      "first_step": 22,
+      "first_side": 0,
+      "cause": "An Illusion Espeon disguised as Alcremie acquires Choice Scarf via Trick. Roar sends it out and brings the actual Alcremie in under the same apparent name. The private request correctly says Mental Herb, but own_now prefers the public apparent Choice Scarf record, computing Alcremie\u2019s effective Speed as 126 instead of 84. A Protect tie-order comparison incorrectly narrows Gallade\u2019s Speed minimum to 126 instead of 100; the bad bound persists. In the second occurrence, Inteleon disguised as Heliolisk loses Iron Ball to Fling; when the actual Heliolisk enters, the client treats it as itemless instead of using its privately reported Choice Scarf. It computes Speed 123 instead of 184 and misses a valid comparison, leaving Passimian\u2019s normalized upper bound 0.99 instead of 0.92.",
+      "evidence": [
+        "Saved requests at decisions 21 and 22 list actual Alcremie\u2019s item mentalherb and raw Speed 84",
+        "Follower debug before decision 22 shows OwnNow item 35 (choicescarf), stat 84, despite the exact request",
+        "Showdown data/items.ts:998 Choice Scarf multiplies Speed by 1.5; the saved request establishes that the actual incoming Alcremie does not hold it",
+        "Additional validated Zoroark script: 10 observations checked, one differs at decision 3; all three mechanics decisions match."
+      ],
+      "scope": "Both original stress cases have only one initially brought Illusion user, injected on Espeon/Inteleon. An additional natural Zoroark script reproduces the same Speed discrepancy; both six-Pok\u00e9mon teams pass Showdown\u2019s TeamValidator for the tested Champions format, including Species and Item clauses. The extra three-turn reproduction is outside the 50,000-battle count.",
+      "potential_fix": "Use the latest private request for the follower\u2019s own held item, applying only subsequent item changes from the current stay. Do not carry an apparent predecessor\u2019s item record across an Illusion alias reused by the actual Pok\u00e9mon. Add a legal single-Zoroark item-transfer/forced-switch reproduction.",
+      "mechanics_divergence": false,
+      "totals": {
+        "cases": 2,
+        "observations": 56,
+        "actionable": 52,
+        "scalar_differences": 56,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-006",
+      "title": "A second Imposter transformation reuses PP from the previous copied moveset",
+      "status": "confirmed; not fixed",
+      "component": "follower copied-move PP lifecycle",
+      "cases": [
+        "trapping-closed-battle-439"
+      ],
+      "first_step": 3,
+      "first_side": 0,
+      "cause": "Imposter Orthworm transforms, spends a copied U-turn, leaves via U-turn, and is immediately forced back by Red Card. It transforms into a different target whose moveset also includes U-turn. Showdown creates fresh five-PP copied slots, but the follower reuses the previous copy\u2019s U-turn at four PP because no intervening request cleared its copied cache. A wait request has move names but no exact PP, exposing 4/5 instead of 5/5.",
+      "evidence": [
+        "Showdown sim/pokemon.ts:1306-1325 replaces moveSlots and initializes each to min(5, move.pp)",
+        "Saved decision 3 logs show departure, Red Card drag and a second -transform before a wait request; decision 4\u2019s exact request confirms U-turn 5/5",
+        "src/follow.rs -transform handler does not reset Own.copied; request clears it only if the Pok\u00e9mon is currently untransformed"
+      ],
+      "potential_fix": "Treat each successful Transform as a new copied-PP generation. Initialize copied slots to min(5, base PP) and clear copied unknown-PP state, preserving the original moveset\u2019s PP. Test immediate exit/reentry and overlapping move IDs across two targets.",
+      "mechanics_divergence": false,
+      "totals": {
+        "cases": 1,
+        "observations": 1,
+        "actionable": 0,
+        "scalar_differences": 1,
+        "mechanics_diverged": 0
+      }
+    },
+    {
+      "id": "OBS-NEW-007",
+      "title": "Own Grassy Glide priority is treated as unknown even when grounding is known",
+      "status": "confirmed; not fixed",
+      "component": "follower private move-priority inference",
+      "cases": [
+        "called-moves-open-battle-200"
+      ],
+      "first_step": 23,
+      "first_side": 1,
+      "cause": "A Prankster Encore runs before the player\u2019s grounded Grassy Glide on Grassy Terrain. Both are priority +1, so the ordering gives a valid Speed lower bound. The follower calls own_priority, whose shared bracket helper unconditionally returns None for Grassy Glide under Grassy Terrain, even for the player\u2019s own known grounded Pok\u00e9mon. It marks that reference action unusable and misses the inference: normalized minimum 0.745 instead of 0.77.",
+      "evidence": [
+        "Showdown data/moves.ts:7666 gives Grassy Glide +1 priority when source.isGrounded and terrain is grassyterrain",
+        "src/speed.rs:644 bracket returns None unconditionally for Grassy Glide under Grassy Terrain; own_priority delegates to this helper",
+        "src/follow.rs:2610 marks the queue action order 0 when own priority is None, excluding it from ordinary-order Speed comparisons",
+        "Four observations differ, all actionable; all 27 mechanics decisions match"
+      ],
+      "potential_fix": "Resolve Grassy Glide\u2019s priority from the player\u2019s known grounding and terrain when using its own action as a Speed reference. Retain uncertainty for an opponent whose grounding is not observable. Test grounded own Glide versus Prankster, airborne own Glide, and unknown opposing grounding.",
+      "mechanics_divergence": false,
+      "totals": {
+        "cases": 1,
+        "observations": 4,
+        "actionable": 4,
+        "scalar_differences": 4,
+        "mechanics_diverged": 0
+      }
+    }
+  ]
+}

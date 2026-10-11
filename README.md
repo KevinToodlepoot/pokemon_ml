@@ -346,7 +346,8 @@ One observation is one side's view at one decision
   light or are on an open team sheet. What is not known is the id "unknown",
   not a guess. Never the opponent's stats.
 - **The four positions on the field**: who stands there, stat stages, types,
-  the conditions it is under, the move it last used.
+  the conditions it is under, the last move it visibly attempted (including
+  a Choice-item refusal).
 - **Speed**, the one thing a snapshot of the battle cannot show: for each
   opposing Pokémon the range its Speed can still be in given
   [who has moved before whom](#what-the-order-of-moves-shows), whether it can
@@ -669,7 +670,7 @@ And a small network keeps its strength on the way through:
 last two rows and 0.9 on the server's.) In those 6,000 battles Showdown
 refused a choice eight times, each time for the reason described next.
 
-**Where it and the simulator part.** Five things, all of them something
+**Where it and the simulator part.** Three things, all of them something
 Showdown does not tell a player, or tells it late:
 
 - *A choice that is barred by something not yet shown*: a foe's Imprison,
@@ -681,23 +682,6 @@ Showdown does not tell a player, or tells it late:
   place, so this is the one situation the network meets on Showdown and not
   in training (in the recorded battles, about one decision in 200, with
   random teams that are full of such moves).
-- *What a move with no target on show paid to Pressure.* A Counter or
-  Mirror Coat that fails, or a move called by another that does nothing to
-  be seen, was aimed at one of the other side picked at random, and the log
-  does not say which. Facing one Pokémon with Pressure and one without, the
-  follower cannot know whether a second PP went, and counts none. Every
-  request gives the PP of the two Pokémon on the field, so it stays wrong
-  only for one that left the field, or fainted, that same turn. Not seen in
-  the 30,000 battles of the table.
-- *That a move of the other side's never began*, when the Choice item that
-  held it back has never been shown. A Pokémon held to one move can come to
-  choose another (its item was switched off by a Magic Room when it chose,
-  and the Magic Room ended before it moved). Showdown shows the move and
-  that it failed, like any move that fails. Where the item is known (the
-  player's own Pokémon; the other side's on an open sheet, or once it has
-  been seen) the follower knows the move was never used. Where it is not,
-  it takes it for the move that Pokémon last used, and the simulator knows
-  better. Not seen in the 30,000 either.
 - *Which of two Pokémon standing side by side under one name is the
   disguise.* Illusion copies the last healthy Pokémon of the team, so as a
   rule the copy is on the field first and the Pokémon itself comes in
@@ -712,6 +696,23 @@ Showdown does not tell a player, or tells it late:
   side is shown exactly for its own, or from having sent it in. Dragged in,
   and with the very HP of the Pokémon it passes for, it is taken for that
   one until the next request, which says who stands where.
+
+#### Hidden move information
+
+The last-move observation records the last visibly attempted queued move.
+Showdown can announce a move rejected by a Choice item before it begins;
+the simulator still keeps the actual last-used move for Encore and other
+mechanics, and deducts no PP for that refusal.
+
+A failed move marked `[still]` hides its target. If that target was chosen
+randomly between foes with different Pressure costs, remaining PP is `-1`
+(unknown) in both training and client observations. Exact PP remains in the
+simulator for mechanics. An exact move request restores the normalized PP
+feature; wait and switch requests do not. Uncertainty survives being benched.
+
+The observation dimensions have not changed, but these feature meanings have.
+Existing checkpoints still load; train new models before relying on the new
+representation in competitive play.
 
 #### Types and disguises
 

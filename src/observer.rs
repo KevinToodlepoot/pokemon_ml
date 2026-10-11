@@ -133,6 +133,8 @@ pub fn holder(kind: &str, tagged: bool, is_item: bool, effect: &str) -> Who {
         ("-item", false) if effect == "frisk" => Who::Of,
         // The thief's ability, on a line about its victim.
         ("-enditem", false) => Who::Nobody,
+        // A flung herb cures its recipient, which never holds the item.
+        ("-end", true) if effect == "mentalherb" => Who::Nobody,
         _ => Who::Subject,
     }
 }
@@ -680,7 +682,12 @@ impl Observer {
                 if let Some(victim) = &of
                     && matches!(from, "ability: Magician" | "ability: Pickpocket" | "move: Thief" | "move: Covet")
                 {
-                    self.note_item(victim, i, true);
+                    // The preceding explicit -enditem already recorded this loss.
+                    // Repeating it can turn contradictory historical item evidence
+                    // into a false original item-clause owner after class reset.
+                    if self.rec(victim).item != ItemShown::Lost(i) {
+                        self.note_item(victim, i, true);
+                    }
                     self.rec(victim).item = ItemShown::Lost(i);
                 }
                 self.tags(kind, &id, &parts)?;

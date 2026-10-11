@@ -277,6 +277,7 @@ impl Battle {
                         // and nothing tells it from any other move that failed. (This may be
                         // the second turn of a move Copycat borrowed: see `Shown::use_move`.)
                         self.show_attempted(Some(holder));
+                        self.mon_mut(holder).last_attempted_move = Some(self.am[mi as usize].id);
                         return FALSE;
                     }
                 }

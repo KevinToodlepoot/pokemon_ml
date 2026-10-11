@@ -160,6 +160,7 @@ impl Battle {
         let d = &MOVES[a.move_id as usize];
         let target = self.get_target_ex(pokemon, Some(a.move_id), a.move_target(), a.target_loc, a.orig_target);
         let mi = self.new_am(a.move_id);
+        self.am[mi as usize].target_replaced = a.target_replaced;
         self.am[mi as usize].target = a.move_target();
         self.am[mi as usize].priority = a.move_priority;
         self.am[mi as usize].prankster_boosted = a.prankster;
@@ -204,6 +205,7 @@ impl Battle {
         }
         // `Pokemon#moveUsed`.
         self.mon_mut(pokemon).last_move = a.move_id;
+        self.mon_mut(pokemon).last_attempted_move = Some(a.move_id);
         self.mon_mut(pokemon).last_move_loc = a.target_loc;
         self.use_move(mi, pokemon, target, source_effect);
         let mv = self.active_move.unwrap_or(mi);
@@ -339,6 +341,30 @@ impl Battle {
             Eff::Move(s) => Some(self.am[s as usize].id),
             _ => None,
         };
+        if source_effect == Eff::None || caller.is_some() {
+            let unaimed = match self.am[m].target {
+                Target::Scripted | Target::RandomNormal => true,
+                Target::Normal | Target::Any | Target::AdjacentFoe => caller.is_some() || self.am[m].target_replaced,
+                _ => false,
+            };
+            let retaliation = matches!(self.am[m].id, mv::METALBURST | mv::COMEUPPANCE)
+                && self
+                    .mon(pokemon)
+                    .last_damaged_by()
+                    .and_then(|a| self.at_slot(a.slot))
+                    .is_some_and(|r| r.side != pokemon.side && !self.mon(r).fainted);
+            if unaimed && !retaliation {
+                let (foes, count) = self.allies_and_self(1 - pokemon.side as usize);
+                let pressing = foes[..count].iter().filter(|&&r| self.has_ability(r, ab::PRESSURE)).count();
+                if pressing > 0 && pressing < count {
+                    let paying = caller.unwrap_or(self.am[m].id);
+                    self.am[m].hidden_pp_slot = self.mon(pokemon).moves[..self.mon(pokemon).n_moves as usize]
+                        .iter()
+                        .position(|s| s.id == paying)
+                        .map(|k| k as u8);
+                }
+            }
+        }
         if (source_effect == Eff::None || caller.is_some()) && self.listens(Ev::DeductPP) {
             // A move aimed at the foe's side spares them, unless it is
             // one of the few that take the toll from every opponent.
@@ -370,6 +396,9 @@ impl Battle {
             try_move = self.run_event(Ev::TryMove, Some(pokemon), target, me, Res::Undef);
         }
         if !try_move.truthy() {
+            if self.am[m].flags & F_CHARGE != 0 && self.vols(pokemon).has(VolKind::Twoturnmove) {
+                self.hide_pp_target(pokemon, mi);
+            }
             return try_move;
         }
 
@@ -580,6 +609,14 @@ impl Battle {
         }
     }
 
+    /// Showdown's `[still]` removes the target from the move line. When the random
+    /// target could have charged either one or two PP, expose neither as a fact.
+    fn hide_pp_target(&mut self, user: MonRef, mi: u8) {
+        if let Some(slot) = self.am[mi as usize].hidden_pp_slot {
+            self.mon_mut(user).unknown_pp |= 1 << slot;
+        }
+    }
+
     /// `BattleActions#trySpreadMoveHit` (this is also the path single-target moves take).
     pub(crate) fn try_spread_move_hit(&mut self, initial: &[MonRef], user: MonRef, mi: u8) -> bool {
         let m = mi as usize;
@@ -599,6 +636,9 @@ impl Battle {
             hit_result = self.run_event(Ev::PrepareHit, Some(user), Some(targets[0]), me, Res::Undef);
         }
         if !hit_result.truthy() {
+            if hit_result == FALSE {
+                self.hide_pp_target(user, mi);
+            }
             return hit_result == Res::NotFail;
         }
 
@@ -619,6 +659,9 @@ impl Battle {
 
         // Step 1: the TryHit event (Protect, absorbing abilities, ...).
         self.run_event_multi(Ev::TryHit, &targets[..n], Some(user), me, &mut res[..n], false);
+        if !res[..n].contains(&TRUE) && res[..n].contains(&FALSE) {
+            self.hide_pp_target(user, mi);
+        }
         for i in 0..n {
             if res[i] != Res::NotFail && !res[i].truthy() {
                 res[i] = FALSE;
@@ -1069,6 +1112,9 @@ impl Battle {
             if let Some(ev) = ev {
                 let hit_result = self.single_event(ev, me, None, first, Some(user), me, Res::Undef);
                 if !hit_result.truthy() {
+                    if hit_result == FALSE && !is_self && !is_secondary {
+                        self.hide_pp_target(user, mi);
+                    }
                     // "single-target only": Showdown reports one failure and stops.
                     let mut out: Damage = [Res::Undef; MAX_TARGETS];
                     out[0] = FALSE;
@@ -1089,6 +1135,10 @@ impl Battle {
             }
         }
         for i in 0..n {
+            if matches!(damage[i], FALSE | Res::Null) && !is_secondary && !is_self {
+                // Substitute can strip the target from a failed status move too.
+                self.hide_pp_target(user, mi);
+            }
             if damage[i] == HIT_SUBSTITUTE {
                 damage[i] = TRUE;
                 targets[i] = Tgt::Sub;
@@ -1106,6 +1156,9 @@ impl Battle {
             if let Tgt::Mon(t) = targets[i] {
                 self.active_target = Some(t);
                 let cur = self.get_damage(user, t, mi, &eff);
+                if cur == FALSE && !is_secondary && !is_self {
+                    self.hide_pp_target(user, mi);
+                }
                 damage[i] = if cur == FALSE || cur == Res::Null { FALSE } else { cur };
             }
         }
@@ -1156,6 +1209,7 @@ impl Battle {
                     if r.truthy() {
                         self.mon_mut(t).force_switch_flag = true;
                     } else if r == FALSE && self.am[mi as usize].category == Category::Status {
+                        self.hide_pp_target(user, mi);
                         damage[i] = FALSE;
                     }
                 }
@@ -1285,6 +1339,7 @@ impl Battle {
                 if eff.heal.0 > 0 && !self.mon(t).fainted {
                     let mon = self.mon(t);
                     if mon.hp >= mon.max_hp() {
+                        self.hide_pp_target(source, mi);
                         damage[i] = damage[i].combine(FALSE);
                         any = any.combine(Res::Null);
                         continue;
@@ -1292,6 +1347,9 @@ impl Battle {
                     let amount = round_div(mon.max_hp() as u32, eff.heal.0 as u32, eff.heal.1 as u32);
                     let healed = self.heal(amount as i32, Some(t), Some(source), me);
                     if !healed.hit() {
+                        if healed != Res::Null {
+                            self.hide_pp_target(source, mi);
+                        }
                         damage[i] = damage[i].combine(FALSE);
                         any = any.combine(Res::Null);
                         continue;
@@ -1390,6 +1448,9 @@ impl Battle {
         // its secondaries and its self effects.)
         let selfdestructs = eff.primary && self.am[mi as usize].d().selfdestruct != SelfDestruct::No;
         let nothing = !any.truthy() && any != Res::Num(0) && !eff.has_self && !selfdestructs;
+        if nothing && any == FALSE && !is_self && !is_secondary {
+            self.hide_pp_target(source, mi);
+        }
         if !nothing && self.am[mi as usize].self_switch != SelfSwitch::No && self.mon(source).hp > 0 {
             let id = self.am[mi as usize].id;
             let m = self.mon_mut(source);

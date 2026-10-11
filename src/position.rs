@@ -402,6 +402,14 @@ pub struct PokemonState {
     /// The move it last used since coming in, and where it aimed it.
     #[serde(skip_serializing_if = "is_default")]
     pub last_move: String,
+    /// Last publicly attempted move; absent in legacy state files.
+    #[serde(skip_serializing_if = "is_default")]
+    pub last_attempted_move: Option<String>,
+    /// Bit mask of move slots whose PP the player is not currently told.
+    #[serde(skip_serializing_if = "is_default")]
+    pub unknown_pp: u8,
+    #[serde(skip_serializing_if = "is_default")]
+    pub base_unknown_pp: u8,
     #[serde(skip_serializing_if = "is_default")]
     pub last_move_target: i8,
     #[serde(skip_serializing_if = "is_default")]
@@ -763,6 +771,8 @@ pub struct Resolved {
     pub prankster: bool,
     pub original_target: Option<MonId>,
     pub self_target: bool,
+    /// An Encore replacement discarded the originally selected target.
+    pub target_replaced: bool,
     /// Called forward by a Round; the value is that Round's `ignoreAbility`.
     pub round: Option<bool>,
     /// A switch caused by this move of the Pokémon leaving.
@@ -1235,6 +1245,9 @@ impl Battle {
             newly_switched: m.newly_switched,
             move_actions: Some(m.active_move_actions),
             last_move: move_name(m.last_move),
+            last_attempted_move: m.last_attempted_move.map(move_name),
+            unknown_pp: m.unknown_pp,
+            base_unknown_pp: m.base_unknown_pp,
             last_move_target: m.last_move_loc,
             move_this_turn: outcome(m.move_this_turn),
             move_last_turn: outcome(m.move_last_turn),
@@ -1332,6 +1345,7 @@ impl Battle {
                     prankster: a.prankster,
                     original_target: a.orig_target.map(|r| self.mon_id(r)),
                     self_target: a.self_target,
+                    target_replaced: a.target_replaced,
                     round: match a.source {
                         ActSource::Round { ignore_ability } => Some(ignore_ability),
                         _ => None,
@@ -1601,6 +1615,12 @@ impl Battle {
         mon.newly_switched = ps.newly_switched;
         mon.active_move_actions = ps.move_actions.unwrap_or(mon.is_active as u8);
         mon.last_move = find_move_or_none(&ps.last_move)?;
+        mon.last_attempted_move = ps.last_attempted_move.as_deref().map(find_move_or_none).transpose()?;
+        if ps.unknown_pp >= 1 << MAX_MOVES || ps.base_unknown_pp >= 1 << MAX_MOVES {
+            return Err(Error::BadState("unknown_pp contains a nonexistent move slot".into()));
+        }
+        mon.unknown_pp = ps.unknown_pp;
+        mon.base_unknown_pp = ps.base_unknown_pp;
         mon.last_move_loc = ps.last_move_target;
         mon.move_this_turn = outcome_res(ps.move_this_turn);
         mon.move_last_turn = outcome_res(ps.move_last_turn);
@@ -2100,6 +2120,7 @@ impl Battle {
             act.prankster = res.prankster;
             act.orig_target = names.mon_opt(res.original_target)?;
             act.self_target = res.self_target;
+            act.target_replaced = res.target_replaced;
             act.source = match (res.round, res.self_switch.is_empty()) {
                 (Some(ignore_ability), _) => ActSource::Round { ignore_ability },
                 (None, false) => ActSource::SelfSwitch(find_move(&res.self_switch)?),

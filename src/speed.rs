@@ -321,6 +321,8 @@ pub(crate) enum Event {
     },
     /// The log has a Pokémon lose its item (`lost`) or come by one.
     Item { side: u8, listed: u8, doubt: bool, item: u16, lost: bool },
+    /// A new stay can reuse the roster number of a departing disguise.
+    Switch { r: MonRef },
 }
 
 thread_local! {
@@ -390,6 +392,12 @@ fn queued(a: &Action) -> Queued {
 }
 
 impl Battle {
+    pub(crate) fn note_speed_switch(&self, r: MonRef) {
+        if on() {
+            LOG.with(|log| log.borrow_mut().push(Event::Switch { r }));
+        }
+    }
+
     /// A queued move is about to run. (Called by the turn loop.)
     pub(crate) fn note_move_starts(&self, a: &Action) {
         if !on() {
@@ -776,6 +784,7 @@ impl Speeds {
         for (j, event) in events.iter().enumerate() {
             swapped_at.push(self.swapped);
             match *event {
+                Event::Switch { r } => self.swapped[r.side as usize][r.idx as usize] = false,
                 Event::Item { side, listed, doubt, item, lost } => {
                     let Some(belief) = self.belief[side as usize].get_mut(listed as usize) else { continue };
                     // A Mega Stone that comes to light was there all along: nothing takes one away.
