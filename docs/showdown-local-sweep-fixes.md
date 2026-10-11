@@ -1,5 +1,7 @@
 # Fixes from the local 50,000-battle comparison
 
+The subsequent local 100,000-battle run is documented in [the next observation-fix report](showdown-100000-observation-fixes.md).
+
 The uploaded run used engine commit `370cdffef90b83569f6ad4acd5f5ef62a5623276`, pinned Showdown commit `ad7ca5d51c03865e6829dbec3a7875df71480fb8`, and generator seed `20261013`. Its 50,000 battles produced 2,456,660 observation comparisons, 101 differences in five battles (85 at actionable decisions), and zero mechanics divergences. These are remaining paths found in the new run, rather than a replay against the old pre-fix engine.
 
 ## Causes and changes

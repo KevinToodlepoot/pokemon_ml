@@ -712,7 +712,7 @@ impl Observer {
                 }
                 self.note_item(&id, i, true);
                 self.rec(&id).item = ItemShown::Lost(i);
-                if from.is_empty() || from == "gem" {
+                if from.is_empty() || from == "gem" || from == "move: Fling" {
                     // Used by its holder, not taken from it.
                     self.used_up.push((id.side, id.name.to_string(), i));
                 }
@@ -753,7 +753,16 @@ impl Observer {
                         self.note_item(&id, i, true);
                         self.rec(&id).item = ItemShown::Lost(i);
                         if let Some(ally) = &of {
+                            // One loss caused the transfer; a second loss can be
+                            // the arriving herb/seed consumed before this line.
+                            // An identical replacement herb is a fresh item.
+                            let losses =
+                                self.used_up.iter().filter(|(s, n, _)| *s == ally.side && n == ally.name).count();
                             self.arrived(ally, i);
+                            if losses == 1 {
+                                self.rec(ally).item = ItemShown::Holds(i);
+                            }
+                            self.used_up.retain(|(s, n, _)| *s != ally.side || n != ally.name);
                         }
                     }
                     "ability: Cud Chew" => self.cud_chew = Some((id.side, id.name.to_string())),

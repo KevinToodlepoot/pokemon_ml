@@ -133,6 +133,7 @@ struct Spot {
     before: [Type; 2],
     active_turns: u16,
     last_move: u16,
+    last_move_loc: Option<i8>,
     last_attempted_move: Option<u16>,
     tox: u8,
     /// Badly poisoned during the end of this turn: the poison has not built up yet.
@@ -191,6 +192,7 @@ impl Spot {
             before: [Type::None; 2],
             active_turns: 0,
             last_move: NO_MOVE,
+            last_move_loc: None,
             last_attempted_move: None,
             tox: 0,
             tox_new: false,
@@ -378,6 +380,7 @@ struct Refusal {
     side: usize,
     pos: usize,
     last_move: u16,
+    last_move_loc: Option<i8>,
     paid: Option<(usize, bool, u16, u8, bool)>,
 }
 
@@ -824,6 +827,33 @@ impl Follower {
         ITEMS[item as usize].flags & IF_CHOICE != 0 && !klutz
     }
 
+    /// A hidden target can still be determined from public redirection and
+    /// the user's private powder immunities. This runs only in the client.
+    fn redirected_pp_target(
+        &self,
+        pos: usize,
+        used: u16,
+        target: Target,
+        aimed: (usize, usize),
+    ) -> Option<(usize, usize)> {
+        let b = self.rebuild().ok()?;
+        let own = self.own_now(pos)?;
+        own.agreed(|ability| {
+            let mut b = b;
+            let user = b.active(self.side, pos);
+            (b.mon_mut(user).ability, b.mon_mut(user).item) = (ability, own.item);
+            let mi = b.new_am(used);
+            b.am[mi as usize].target = target;
+            let at = b.active(aimed.0, aimed.1);
+            Some(match b.priority_event(Ev::RedirectTarget, Some(user), Some(user), Eff::Move(mi), Res::Mon(at)) {
+                Res::Mon(r) => {
+                    (r.side as usize, (0..ACTIVE).find(|&p| b.active(r.side as usize, p) == r).unwrap_or(aimed.1))
+                }
+                _ => aimed,
+            })
+        })
+    }
+
     /// The team index the rebuilt battle gives whoever stands at a position.
     fn mon_ref(&self, side: usize, pos: usize) -> MonRef {
         if side == self.side {
@@ -903,7 +933,12 @@ impl Follower {
                 let named = named.unwrap_or(NO_MOVE);
                 let stay = self.spots[side][pos].stay;
                 match self.begun.last_mut() {
-                    Some(last) if kind == "move" && last.asleep && !last.instructed && last.stay == stay => {
+                    Some(last)
+                        if last.asleep
+                            && !last.instructed
+                            && last.stay == stay
+                            && (kind == "move" || (kind == "cant" && named != NO_MOVE && arg(3) != "slp")) =>
+                    {
                         if from != "move: Round"
                             && let Some(before) = last.round_before.take()
                         {
@@ -929,6 +964,7 @@ impl Follower {
         // queue was sorted while asleep, including Quick Feet's Speed bonus.
         if !(kind == "-curestatus" && parts.contains(&"[msg]"))
             && !(matches!(kind, "-activate" | "-end") && arg(3) == "confusion")
+            && !(kind == "-activate" && arg(3) == "move: Struggle")
         {
             self.roused = None;
         }
@@ -1493,6 +1529,14 @@ impl Follower {
                 let at_work = queued && used != mv::STRUGGLE && self.choice_at_work(side, pos);
                 let doubtful = at_work && parts.contains(&"[still]") && held_to.is_some_and(|held| held != used);
                 let before = self.spots[side][pos].last_move;
+                let before_loc = self.spots[side][pos].last_move_loc;
+                let instructed = self.begun.last().is_some_and(|b| b.stay == stay && b.instructed);
+                let selected_loc = if instructed {
+                    before_loc
+                } else {
+                    self.chosen.iter().find(|c| c.0 == self.own_at[pos]).map(|c| c.2)
+                };
+                let replaced = queued && self.queued_since(side, pos, used).is_some();
                 let mut paid = None;
                 if at_work && !doubtful && held_to.is_some_and(|held| held != used) {
                     // It went ahead with a move it was thought to be held from: the item is
@@ -1504,8 +1548,12 @@ impl Follower {
                     self.spot(side, pos).choice = Some(used);
                 }
                 if queued {
+                    let mine = side == self.side;
                     let spot = self.spot(side, pos);
                     spot.last_move = used;
+                    if mine {
+                        spot.last_move_loc = if replaced { Some(0) } else { selected_loc };
+                    }
                     spot.last_attempted_move = Some(used);
                     // (A charging move's own condition goes as it strikes; that it is a
                     // two-turn move stays on the books until the turn is over.)
@@ -1528,14 +1576,13 @@ impl Follower {
                     // two if it is aimed at a Pokémon with Pressure, which says so on coming in.
                     let mut aimed: Vec<(usize, usize)> = Vec::new();
                     let data = &MOVES[used as usize];
-                    let replaced = queued && self.queued_since(side, pos, used).is_some();
                     // Ghost Curse rerolls an allied/missing selected target to a random foe.
                     // A failed execution can omit that foe from the public move line.
                     let curse = used == mv::CURSE;
                     let ghost = curse
                         && (self.seen_base(side, pos).contains(&Type::Ghost)
                             || self.spots[side][pos].added == Type::Ghost);
-                    let chosen_loc = self.chosen.iter().find(|c| c.0 == self.own_at[pos]).map(|c| c.2);
+                    let chosen_loc = selected_loc;
                     let target = if curse && !ghost {
                         Target::User
                     } else if ghost && (!queued || replaced || chosen_loc.is_none_or(|loc| loc <= 0)) {
@@ -1571,13 +1618,28 @@ impl Follower {
                     } else if queued
                         && !replaced
                         && matches!(target, Target::Normal | Target::Any | Target::AdjacentFoe)
-                        && let Some(&(_, _, loc)) = self.chosen.iter().find(|c| c.0 == self.own_at[pos])
-                        && loc > 0
+                        && let Some(loc) = chosen_loc
+                        && loc != 0
                     {
-                        // (With nobody left where it was aimed, it goes for the other one.)
-                        let there = loc as usize - 1;
-                        let other = !self.present(1 - side, there) && self.present(1 - side, 1 - there);
-                        aimed.push((1 - side, if other { 1 - there } else { there }));
+                        if loc < 0 {
+                            // Follow Me/Rage Powder can redirect an attack
+                            // originally selected against the user's ally too.
+                            aimed.push((side, (-loc - 1) as usize));
+                        } else {
+                            // With nobody left where it was aimed, it goes for the other one.
+                            let there = loc as usize - 1;
+                            let other = !self.present(1 - side, there) && self.present(1 - side, 1 - there);
+                            aimed.push((1 - side, if other { 1 - there } else { there }));
+                        }
+                    }
+                    if fourth.is_none()
+                        && aimed.len() == 1
+                        && !data.tracks_target
+                        && matches!(target, Target::Normal | Target::Any | Target::AdjacentFoe | Target::RandomNormal)
+                        && self.spots[1 - side].iter().any(|s| s.has(VolKind::Followme) || s.has(VolKind::Ragepowder))
+                        && let Some(redirected) = self.redirected_pp_target(pos, used, target, aimed[0])
+                    {
+                        aimed[0] = redirected;
                     }
                     let presses = |&(s, p): &(usize, usize)| {
                         s != side
@@ -1590,7 +1652,9 @@ impl Follower {
                     // whoever hit it, one that goes for anybody, one called by another move.
                     let unaimed = match target {
                         Target::Scripted | Target::RandomNormal => true,
-                        Target::Normal | Target::Any | Target::AdjacentFoe => !queued || replaced,
+                        Target::Normal | Target::Any | Target::AdjacentFoe => {
+                            !queued || replaced || (instructed && chosen_loc.is_none_or(|loc| loc == 0))
+                        }
                         _ => false,
                     };
                     let mut uncertain = false;
@@ -1630,7 +1694,7 @@ impl Follower {
                     }
                 }
                 if doubtful {
-                    self.refusable = Some(Refusal { side, pos, last_move: before, paid });
+                    self.refusable = Some(Refusal { side, pos, last_move: before, last_move_loc: before_loc, paid });
                 }
                 match used {
                     mv::WIDEGUARD | mv::QUICKGUARD => {
@@ -1741,6 +1805,7 @@ impl Follower {
                 if let Some(refused) = refused {
                     // Held to another move by its Choice item: this one never began.
                     self.spot(side, pos).last_move = refused.last_move;
+                    self.spot(side, pos).last_move_loc = refused.last_move_loc;
                     if let Some((idx, copied, paying, taken, was_unknown)) = refused.paid
                         && let Some(own) = self.own.get_mut(idx)
                     {
@@ -1836,6 +1901,23 @@ impl Follower {
             "-start" => self.started_on(side, pos, arg(3), parts, of),
             "-end" => {
                 let at = self.begun.len();
+                let reset_types = if arg(3) == "typechange"
+                    && self.reader.live_record(side, pos).is_some_and(|r| r.ability == ab::MIMICRY)
+                {
+                    let base = if side == self.side {
+                        self.own
+                            .get(self.own_at[pos])
+                            .and_then(|o| self.req.as_ref()?.mons.iter().find(|m| m.name == o.name).map(|m| m.species))
+                    } else {
+                        self.reader.sides[side].active[pos]
+                            .as_ref()
+                            .and_then(|l| self.reader.sides[side].team.get(l.entry))
+                            .map(|m| m.species)
+                    };
+                    self.spots[side][pos].forme.filter(|&s| is_mega(s)).or(base).map(|s| SPECIES[s as usize].types)
+                } else {
+                    None
+                };
                 let spot = self.spot(side, pos);
                 let effect = arg(3);
                 if parts.contains(&"[partiallytrapped]") {
@@ -1843,7 +1925,7 @@ impl Follower {
                     // binding move under the move's. (It can be under both, from two Pokémon.)
                     spot.remove(if effect == "Octolock" { VolKind::Octolock } else { VolKind::Partiallytrapped });
                 } else if effect == "typechange" {
-                    spot.types = None;
+                    spot.types = reset_types;
                     spot.added = Type::None;
                     (spot.copied, spot.copied_foe, spot.told) = (false, false, false);
                 } else if effect == "Stockpile" {
