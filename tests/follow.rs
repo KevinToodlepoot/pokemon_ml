@@ -70,6 +70,49 @@ fn locally_saved_sweep_failures_have_matching_observations() {
 }
 
 #[test]
+fn local_100000_and_targeted_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/local_100000_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 13);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        if matches!(case.id, 956 | 381) {
+            let mut me = follower_for(case, 0);
+            me.lines(&Follower::own_lines(0, &case.initial.log)).unwrap();
+            me.request(&case.initial.requests[0].to_string()).unwrap();
+            let steps = if case.id == 956 { 2 } else { 7 };
+            for step in &case.steps[..steps] {
+                me.lines(&Follower::own_lines(0, &step.after.log)).unwrap();
+                me.request(&step.after.requests[0].to_string()).unwrap();
+            }
+            if case.id == 956 {
+                let b = me.battle().unwrap();
+                let m = b.mon(b.active(0, 1));
+                assert_eq!(m.species, vgc_engine::data::species_id("castformsnowy").unwrap());
+                assert_eq!(
+                    m.types,
+                    [vgc_engine::data::Type::Normal, vgc_engine::data::Type::None],
+                    "Mimicry restores original types without changing the Forecast forme"
+                );
+            } else {
+                let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+                me.observe(&mut f, &mut i, &mut mask).unwrap();
+                assert_eq!(
+                    i[73],
+                    vgc_engine::data::item_id("whiteherb").unwrap() as i16 + vgc_engine::obs::ID_BASE,
+                    "the replacement White Herb remains held after the original was consumed"
+                );
+            }
+        }
+    }
+    assert_eq!(tally.observations, 773);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn a_follower_sees_what_the_simulator_sees() {
     let mut tally = FollowTally::default();
     let (mut battles, mut decisions) = (0, 0);

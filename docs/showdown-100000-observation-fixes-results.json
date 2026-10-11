@@ -1,0 +1,1498 @@
+{
+  "schema_version": 1,
+  "reference": "Pokemon Showdown",
+  "uploaded_run_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-11T21:37:44Z",
+    "engine_commit": "8db777ed2df0f8b17f14a38670f2c99f64f64089",
+    "working_tree": "",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.8.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "3dabc61daefb4f18dbafb36395fb12b43d5e5bc997a553fb51274e7a10d8d4b4",
+      "difftest": "7d0395cc8d268f0b36daeb7d939573de6e1f923d7ab474ff0c7b39098e845952"
+    },
+    "build_requested": true,
+    "command": [
+      "scripts/compare-showdown.py",
+      "--battles",
+      "100000",
+      "--seed",
+      "902681437",
+      "--workers",
+      "4",
+      "--out",
+      "/Users/matiasbronner/showdown-runs/showdown-902681437"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-11T22:13:07Z",
+    "generator_unchanged": true
+  },
+  "uploaded_run_summary": {
+    "completed_batches": 100,
+    "compared_battles": 100000,
+    "failing_battles": 10,
+    "elapsed_seconds": 1254,
+    "observations_actionable_differences": 51,
+    "observations_decisions": 2374937,
+    "observations_differences": 59,
+    "observations_failed": 0,
+    "observations_followed": 100000,
+    "observations_observations": 4918229,
+    "observations_passed_over": 31645,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 2374937,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 100000,
+    "mechanics_unsupported": 0
+  },
+  "uploaded_failures": [
+    {
+      "key": "0009-pressure-battle-338",
+      "generation": {
+        "seed": 910681461,
+        "original_id": 339,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus",
+          "--moves",
+          "encore,expandingforce,curse,comeuppance,metalburst"
+        ]
+      },
+      "battle_seed": [
+        60934,
+        63375,
+        37975,
+        21850
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 12,
+        "actionable_observations": 36,
+        "decisions": 18,
+        "differences": 13,
+        "errors": [],
+        "first_differences": [
+          "battle 338 step 5 side 1: own mon: pp: the game has 0.8333333 (at 213), the follower 0.75"
+        ],
+        "id": 338,
+        "observations": 38,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 18,
+        "errors": [],
+        "id": 338,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 36,
+        "decisions": 18,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 338,
+        "observations": 38,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0025-item-control-battle-694",
+      "generation": {
+        "seed": 926681509,
+        "original_id": 708,
+        "options": [
+          "--moves",
+          "fling,thief,covet,trick,switcheroo,knockoff",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        46882,
+        21157,
+        1614,
+        59080
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 0,
+        "actionable_observations": 62,
+        "decisions": 32,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 694 step 11 side 0: own mon: pp: the game has 0.9166667 (at 158), the follower 0.8333333"
+        ],
+        "id": 694,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 32,
+        "errors": [],
+        "id": 694,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 62,
+        "decisions": 32,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 694,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0069-mental-herb-battle-822",
+      "generation": {
+        "seed": 970681641,
+        "original_id": 825,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,klutz",
+          "--items",
+          "mentalherb,choicescarf,leftovers",
+          "--moves",
+          "encore,taunt,disable,torment,throatchop,imprison",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        19314,
+        64855,
+        24857,
+        19888
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 1,
+        "actionable_observations": 19,
+        "decisions": 13,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 822 step 12 side 0: own mon: pp: the game has 0.8333333 (at 263), the follower 0.9166667"
+        ],
+        "id": 822,
+        "observations": 21,
+        "passed_over": 7,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 13,
+        "errors": [],
+        "id": 822,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 19,
+        "decisions": 13,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 822,
+        "observations": 21,
+        "passed_over": 7,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0070-mental-herb-battle-543",
+      "generation": {
+        "seed": 971681644,
+        "original_id": 542,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,klutz",
+          "--items",
+          "mentalherb,choicescarf,leftovers",
+          "--moves",
+          "encore,taunt,disable,torment,throatchop,imprison",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        11974,
+        52390,
+        18928,
+        30335
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 1,
+        "actionable_observations": 62,
+        "decisions": 41,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 543 step 15 side 0: their mon: speed high: the game has 0.59 (at 683), the follower 0.635"
+        ],
+        "id": 543,
+        "observations": 69,
+        "passed_over": 15,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 41,
+        "errors": [],
+        "id": 543,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 62,
+        "decisions": 41,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 543,
+        "observations": 69,
+        "passed_over": 15,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0075-item-control-battle-356",
+      "generation": {
+        "seed": 976681659,
+        "original_id": 362,
+        "options": [
+          "--moves",
+          "fling,thief,covet,trick,switcheroo,knockoff",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        58325,
+        4204,
+        41424,
+        21220
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 91,
+        "decisions": 48,
+        "differences": 2,
+        "errors": [],
+        "first_differences": [
+          "battle 356 step 6 side 0: their mon: speed low: the game has 0.36 (at 422), the follower 0.305"
+        ],
+        "id": 356,
+        "observations": 98,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 48,
+        "errors": [],
+        "id": 356,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 91,
+        "decisions": 48,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 356,
+        "observations": 98,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0087-general-battle-956",
+      "generation": {
+        "seed": 988681695,
+        "original_id": 974,
+        "options": []
+      },
+      "battle_seed": [
+        60204,
+        4659,
+        7620,
+        14653
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 4,
+        "actionable_observations": 65,
+        "decisions": 35,
+        "differences": 4,
+        "errors": [],
+        "first_differences": [
+          "battle 956 step 2 side 0: own position: types: the game has 1 (at 829), the follower 0"
+        ],
+        "id": 956,
+        "observations": 72,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 35,
+        "errors": [],
+        "id": 956,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 65,
+        "decisions": 35,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 956,
+        "observations": 72,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0096-general-battle-505",
+      "generation": {
+        "seed": 997681722,
+        "original_id": 507,
+        "options": [
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        21367,
+        18786,
+        12600,
+        49936
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 20,
+        "actionable_observations": 62,
+        "decisions": 32,
+        "differences": 22,
+        "errors": [],
+        "first_differences": [
+          "battle 505 step 10 side 1: their mon: speed low: the game has 0.61 (at 682), the follower 0.675"
+        ],
+        "id": 505,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 32,
+        "errors": [],
+        "id": 505,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 62,
+        "decisions": 32,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 505,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0097-general-battle-381",
+      "generation": {
+        "seed": 998681725,
+        "original_id": 387,
+        "options": []
+      },
+      "battle_seed": [
+        44339,
+        8297,
+        8695,
+        33078
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 41,
+        "decisions": 23,
+        "differences": 2,
+        "errors": [],
+        "first_differences": [
+          "battle 381 step 7 side 0: their mon id: item: the game has 164 (at 73), the follower 2"
+        ],
+        "id": 381,
+        "observations": 48,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 23,
+        "errors": [],
+        "id": 381,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 41,
+        "decisions": 23,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 381,
+        "observations": 48,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0099-called-moves-battle-129",
+      "generation": {
+        "seed": 1000681731,
+        "original_id": 129,
+        "options": [
+          "--moves",
+          "instruct,copycat,sleeptalk,encore,transform,uproar",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "pressure,innerfocus,prankster"
+        ]
+      },
+      "battle_seed": [
+        17746,
+        63117,
+        30382,
+        59189
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 70,
+        "decisions": 37,
+        "differences": 3,
+        "errors": [],
+        "first_differences": [
+          "battle 129 step 10 side 1: own mon: pp: the game has 0.375 (at 210), the follower 0.5"
+        ],
+        "id": 129,
+        "observations": 76,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 37,
+        "errors": [],
+        "id": 129,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 70,
+        "decisions": 37,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 129,
+        "observations": 76,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0099-called-moves-battle-864",
+      "generation": {
+        "seed": 1000681731,
+        "original_id": 867,
+        "options": [
+          "--moves",
+          "instruct,copycat,sleeptalk,encore,transform,uproar",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "pressure,innerfocus,prankster"
+        ]
+      },
+      "battle_seed": [
+        7219,
+        26873,
+        48094,
+        24056
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 7,
+        "actionable_observations": 34,
+        "decisions": 20,
+        "differences": 10,
+        "errors": [],
+        "first_differences": [
+          "battle 864 step 8 side 1: their mon: speed high: the game has 0.635 (at 423), the follower 0.95"
+        ],
+        "id": 864,
+        "observations": 39,
+        "passed_over": 3,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 20,
+        "errors": [],
+        "id": 864,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 34,
+        "decisions": 20,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 864,
+        "observations": 39,
+        "passed_over": 3,
+        "status": "followed"
+      }
+    }
+  ],
+  "uploaded_regression_before": {
+    "actionable_differences": 51,
+    "decisions": 299,
+    "differences": 59,
+    "failed": 0,
+    "followed": 10,
+    "observations": 593,
+    "passed_over": 25,
+    "unsupported": 0
+  },
+  "additional_targeted_regressions": [
+    {
+      "key": "0001-redirected-pressure-closed-battle-57",
+      "generation": {
+        "seed": 1739628401,
+        "original_id": 56,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus,overcoat",
+          "--items",
+          "leftovers,mentalherb",
+          "--moves",
+          "ragepowder,followme,solarbeam,dig,fling",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        1701,
+        41448,
+        23852,
+        37993
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 0,
+        "actionable_observations": 32,
+        "decisions": 21,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 57 step 19 side 1: own mon: pp: the game has 0.5 (at 210), the follower 0.5833333"
+        ],
+        "id": 57,
+        "observations": 44,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 21,
+        "errors": [],
+        "id": 57,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 32,
+        "decisions": 21,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 57,
+        "observations": 44,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0001-redirected-pressure-closed-battle-81",
+      "generation": {
+        "seed": 1739628401,
+        "original_id": 81,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus,overcoat",
+          "--items",
+          "leftovers,mentalherb",
+          "--moves",
+          "ragepowder,followme,solarbeam,dig,fling",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        6666,
+        22394,
+        48954,
+        16094
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 1,
+        "actionable_observations": 82,
+        "decisions": 46,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 81 step 1 side 0: own mon: pp: the game has 0.8333333 (at 366), the follower 0.9166667"
+        ],
+        "id": 81,
+        "observations": 94,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 46,
+        "errors": [],
+        "id": 81,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 82,
+        "decisions": 46,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 81,
+        "observations": 94,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0002-redirected-pressure-open-battle-61",
+      "generation": {
+        "seed": 1740628404,
+        "original_id": 60,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus,overcoat",
+          "--items",
+          "leftovers,mentalherb",
+          "--moves",
+          "ragepowder,followme,solarbeam,dig,fling",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        38478,
+        11306,
+        50961,
+        42655
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 0,
+        "actionable_observations": 36,
+        "decisions": 20,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 61 step 1 side 1: own mon: pp: the game has 0.8333333 (at 366), the follower 0.9166667"
+        ],
+        "id": 61,
+        "observations": 42,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 20,
+        "errors": [],
+        "id": 61,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 36,
+        "decisions": 20,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 61,
+        "observations": 42,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    }
+  ],
+  "combined_regression_observations": {
+    "actionable_differences": 0,
+    "decisions": 386,
+    "differences": 0,
+    "failed": 0,
+    "followed": 13,
+    "observations": 773,
+    "passed_over": 25,
+    "unsupported": 0
+  },
+  "combined_regression_mechanics": {
+    "decisions": 386,
+    "diverged": 0,
+    "matched": 13,
+    "unsupported": 0
+  },
+  "targeted_validation": {
+    "unique_battles": 1000,
+    "generator_base_seed": 1739628401,
+    "manifest": [
+      {
+        "label": "0001-redirected-pressure-closed",
+        "seed": 1739628401,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus,overcoat",
+          "--items",
+          "leftovers,mentalherb",
+          "--moves",
+          "ragepowder,followme,solarbeam,dig,fling",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0002-redirected-pressure-open",
+        "seed": 1740628404,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus,overcoat",
+          "--items",
+          "leftovers,mentalherb",
+          "--moves",
+          "ragepowder,followme,solarbeam,dig,fling",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0003-blocked-sleep-talk-closed",
+        "seed": 1741628407,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,prankster",
+          "--moves",
+          "rest,sleeptalk,taunt,imprison",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0004-blocked-sleep-talk-open",
+        "seed": 1742628410,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,prankster",
+          "--moves",
+          "rest,sleeptalk,taunt,imprison",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0005-waking-struggle-closed",
+        "seed": 1743628413,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "quickfeet,innerfocus,pressure",
+          "--moves",
+          "rest,encore,imprison,disable,torment",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0006-waking-struggle-open",
+        "seed": 1744628416,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "quickfeet,innerfocus,pressure",
+          "--moves",
+          "rest,encore,imprison,disable,torment",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0007-forecast-mimicry-closed",
+        "seed": 1745628419,
+        "n": 50,
+        "options": [
+          "--species",
+          "castform",
+          "--abilities",
+          "forecast,mimicry,innerfocus",
+          "--moves",
+          "skillswap,snowscape,sunnyday,soak,reflecttype",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0008-forecast-mimicry-open",
+        "seed": 1746628422,
+        "n": 50,
+        "options": [
+          "--species",
+          "castform",
+          "--abilities",
+          "forecast,mimicry,innerfocus",
+          "--moves",
+          "skillswap,snowscape,sunnyday,soak,reflecttype",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0009-replacement-white-herb-closed",
+        "seed": 1747628425,
+        "n": 50,
+        "options": [
+          "--abilities",
+          "symbiosis,innerfocus",
+          "--items",
+          "whiteherb,leftovers,sitrusberry",
+          "--moves",
+          "metalsound,scaryface,fling,skillswap,closecombat",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0010-replacement-white-herb-open",
+        "seed": 1748628428,
+        "n": 50,
+        "options": [
+          "--abilities",
+          "symbiosis,innerfocus",
+          "--items",
+          "whiteherb,leftovers,sitrusberry",
+          "--moves",
+          "metalsound,scaryface,fling,skillswap,closecombat",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0011-instruct-targets-closed",
+        "seed": 1749628431,
+        "n": 100,
+        "options": [
+          "--species",
+          "oranguru,audino",
+          "--abilities",
+          "pressure,innerfocus,prankster",
+          "--items",
+          "choicescarf,leftovers,mentalherb",
+          "--moves",
+          "instruct,encore,taunt,thief,metalburst",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0012-instruct-targets-open",
+        "seed": 1750628434,
+        "n": 100,
+        "options": [
+          "--species",
+          "oranguru,audino",
+          "--abilities",
+          "pressure,innerfocus,prankster",
+          "--items",
+          "choicescarf,leftovers,mentalherb",
+          "--moves",
+          "instruct,encore,taunt,thief,metalburst",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      }
+    ],
+    "observations_before": {
+      "actionable_differences": 56,
+      "decisions": 31793,
+      "differences": 67,
+      "failed": 0,
+      "followed": 1000,
+      "observations": 62846,
+      "passed_over": 2740,
+      "unsupported": 0
+    },
+    "differing_battles_before": 12,
+    "negative_control_failures": [
+      {
+        "batch": "0001-redirected-pressure-closed",
+        "generation": {
+          "seed": 1739628401,
+          "original_id": 56,
+          "options": [
+            "--abilities",
+            "pressure,innerfocus,overcoat",
+            "--items",
+            "leftovers,mentalherb",
+            "--moves",
+            "ragepowder,followme,solarbeam,dig,fling",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          1701,
+          41448,
+          23852,
+          37993
+        ],
+        "observations_before": {
+          "actionable_differences": 0,
+          "actionable_observations": 32,
+          "decisions": 21,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 57 step 19 side 1: own mon: pp: the game has 0.5 (at 210), the follower 0.5833333"
+          ],
+          "id": 57,
+          "observations": 44,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0001-redirected-pressure-closed",
+        "generation": {
+          "seed": 1739628401,
+          "original_id": 81,
+          "options": [
+            "--abilities",
+            "pressure,innerfocus,overcoat",
+            "--items",
+            "leftovers,mentalherb",
+            "--moves",
+            "ragepowder,followme,solarbeam,dig,fling",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          6666,
+          22394,
+          48954,
+          16094
+        ],
+        "observations_before": {
+          "actionable_differences": 1,
+          "actionable_observations": 82,
+          "decisions": 46,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 81 step 1 side 0: own mon: pp: the game has 0.8333333 (at 366), the follower 0.9166667"
+          ],
+          "id": 81,
+          "observations": 94,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0002-redirected-pressure-open",
+        "generation": {
+          "seed": 1740628404,
+          "original_id": 60,
+          "options": [
+            "--abilities",
+            "pressure,innerfocus,overcoat",
+            "--items",
+            "leftovers,mentalherb",
+            "--moves",
+            "ragepowder,followme,solarbeam,dig,fling",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          38478,
+          11306,
+          50961,
+          42655
+        ],
+        "observations_before": {
+          "actionable_differences": 0,
+          "actionable_observations": 36,
+          "decisions": 20,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 61 step 1 side 1: own mon: pp: the game has 0.8333333 (at 314), the follower 0.9166667"
+          ],
+          "id": 61,
+          "observations": 42,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0003-blocked-sleep-talk-closed",
+        "generation": {
+          "seed": 1741628407,
+          "original_id": 0,
+          "options": [
+            "--abilities",
+            "innerfocus,pressure,prankster",
+            "--moves",
+            "rest,sleeptalk,taunt,imprison",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          5430,
+          51235,
+          64964,
+          55077
+        ],
+        "observations_before": {
+          "actionable_differences": 25,
+          "actionable_observations": 61,
+          "decisions": 37,
+          "differences": 28,
+          "errors": [],
+          "first_differences": [
+            "battle 1 step 9 side 1: their mon: speed low: the game has 0.425 (at 630), the follower 0.305"
+          ],
+          "id": 1,
+          "observations": 67,
+          "passed_over": 9,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0003-blocked-sleep-talk-closed",
+        "generation": {
+          "seed": 1741628407,
+          "original_id": 5,
+          "options": [
+            "--abilities",
+            "innerfocus,pressure,prankster",
+            "--moves",
+            "rest,sleeptalk,taunt,imprison",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          12612,
+          29956,
+          64614,
+          45689
+        ],
+        "observations_before": {
+          "actionable_differences": 6,
+          "actionable_observations": 37,
+          "decisions": 25,
+          "differences": 7,
+          "errors": [],
+          "first_differences": [
+            "battle 6 step 14 side 1: their mon: speed low: the game has 0.58 (at 474), the follower 0.42"
+          ],
+          "id": 6,
+          "observations": 43,
+          "passed_over": 9,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0005-waking-struggle-closed",
+        "generation": {
+          "seed": 1743628413,
+          "original_id": 16,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus,pressure",
+            "--moves",
+            "rest,encore,imprison,disable,torment",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          50105,
+          47529,
+          43268,
+          34979
+        ],
+        "observations_before": {
+          "actionable_differences": 0,
+          "actionable_observations": 125,
+          "decisions": 71,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 17 step 70 side 1: their mon: speed high: the game has 0.505 (at 423), the follower 0.445"
+          ],
+          "id": 17,
+          "observations": 144,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0006-waking-struggle-open",
+        "generation": {
+          "seed": 1744628416,
+          "original_id": 76,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus,pressure",
+            "--moves",
+            "rest,encore,imprison,disable,torment",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          24217,
+          3496,
+          20206,
+          61545
+        ],
+        "observations_before": {
+          "actionable_differences": 13,
+          "actionable_observations": 40,
+          "decisions": 23,
+          "differences": 15,
+          "errors": [],
+          "first_differences": [
+            "battle 77 step 15 side 0: their mon: speed low: the game has 0.295 (at 630), the follower 0.29"
+          ],
+          "id": 77,
+          "observations": 44,
+          "passed_over": 4,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0006-waking-struggle-open",
+        "generation": {
+          "seed": 1744628416,
+          "original_id": 94,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus,pressure",
+            "--moves",
+            "rest,encore,imprison,disable,torment",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          24500,
+          9692,
+          19708,
+          29955
+        ],
+        "observations_before": {
+          "actionable_differences": 1,
+          "actionable_observations": 26,
+          "decisions": 14,
+          "differences": 2,
+          "errors": [],
+          "first_differences": [
+            "battle 95 step 1 side 0: own mon: pp: the game has 0.75 (at 213), the follower 0.875"
+          ],
+          "id": 95,
+          "observations": 30,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0007-forecast-mimicry-closed",
+        "generation": {
+          "seed": 1745628419,
+          "original_id": 16,
+          "options": [
+            "--species",
+            "castform",
+            "--abilities",
+            "forecast,mimicry,innerfocus",
+            "--moves",
+            "skillswap,snowscape,sunnyday,soak,reflecttype",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          13214,
+          14174,
+          53657,
+          19017
+        ],
+        "observations_before": {
+          "actionable_differences": 6,
+          "actionable_observations": 36,
+          "decisions": 19,
+          "differences": 6,
+          "errors": [],
+          "first_differences": [
+            "battle 17 step 16 side 0: own position: types: the game has 1 (at 704), the follower 0"
+          ],
+          "id": 17,
+          "observations": 40,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0008-forecast-mimicry-open",
+        "generation": {
+          "seed": 1746628422,
+          "original_id": 20,
+          "options": [
+            "--species",
+            "castform",
+            "--abilities",
+            "forecast,mimicry,innerfocus",
+            "--moves",
+            "skillswap,snowscape,sunnyday,soak,reflecttype",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          64185,
+          43356,
+          1787,
+          52787
+        ],
+        "observations_before": {
+          "actionable_differences": 2,
+          "actionable_observations": 90,
+          "decisions": 47,
+          "differences": 2,
+          "errors": [],
+          "first_differences": [
+            "battle 21 step 5 side 0: own position: types: the game has 1 (at 829), the follower 0"
+          ],
+          "id": 21,
+          "observations": 96,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-replacement-white-herb-closed",
+        "generation": {
+          "seed": 1747628425,
+          "original_id": 24,
+          "options": [
+            "--abilities",
+            "symbiosis,innerfocus",
+            "--items",
+            "whiteherb,leftovers,sitrusberry",
+            "--moves",
+            "metalsound,scaryface,fling,skillswap,closecombat",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          35568,
+          46708,
+          51417,
+          13973
+        ],
+        "observations_before": {
+          "actionable_differences": 2,
+          "actionable_observations": 46,
+          "decisions": 25,
+          "differences": 2,
+          "errors": [],
+          "first_differences": [
+            "battle 25 step 3 side 1: their mon id: item: the game has 164 (at 65), the follower 2"
+          ],
+          "id": 25,
+          "observations": 52,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0012-instruct-targets-open",
+        "generation": {
+          "seed": 1750628434,
+          "original_id": 61,
+          "options": [
+            "--species",
+            "oranguru,audino",
+            "--abilities",
+            "pressure,innerfocus,prankster",
+            "--items",
+            "choicescarf,leftovers,mentalherb",
+            "--moves",
+            "instruct,encore,taunt,thief,metalburst",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          24784,
+          56058,
+          59391,
+          10126
+        ],
+        "observations_before": {
+          "actionable_differences": 0,
+          "actionable_observations": 55,
+          "decisions": 30,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 62 step 7 side 0: own mon: pp: the game has 0.5 (at 314), the follower 0.625"
+          ],
+          "id": 62,
+          "observations": 62,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      }
+    ],
+    "observations_after": {
+      "actionable_differences": 0,
+      "decisions": 31793,
+      "differences": 0,
+      "failed": 0,
+      "followed": 1000,
+      "observations": 62846,
+      "passed_over": 2740,
+      "unsupported": 0
+    },
+    "mechanics_after": {
+      "decisions": 31793,
+      "diverged": 0,
+      "matched": 1000,
+      "unsupported": 0
+    },
+    "initial_candidate_findings": {
+      "completed_batches": 12,
+      "compared_battles": 1000,
+      "failing_battles": 3,
+      "elapsed_seconds": 68,
+      "observations_actionable_differences": 1,
+      "observations_decisions": 31793,
+      "observations_differences": 3,
+      "observations_failed": 0,
+      "observations_followed": 1000,
+      "observations_observations": 62846,
+      "observations_passed_over": 2740,
+      "observations_unsupported": 0,
+      "mechanics_decisions": 31793,
+      "mechanics_diverged": 0,
+      "mechanics_matched": 1000,
+      "mechanics_unsupported": 0
+    }
+  },
+  "fixed_source_provenance": {
+    "engine_base_commit": "17ff835773a00db77cf2f9aa9d0622b0959e7576",
+    "source_hashes": {
+      "src/state.rs": "e9ef424cc9e7f5a578b330313ed1f820ec44fa5d2d94b596c29633fff8ef2015",
+      "src/conditions.rs": "e3de621f01e629edfabad4beacbf4ea3a49e2b9c99b5769cb2688c884682cc96",
+      "src/python.rs": "795cbe3d8a907757582311c8fa8dd8e701b87d5965848d8fc20c0f84da1ee5f4",
+      "src/items.rs": "4ed2bcb6f1a27caa943e2ce56e0e90f94dbb216ebe27c5e97fde17d02174bee9",
+      "src/abilities.rs": "11affb95e631f8c289d9fd3e17b46c9300b7b54b42510c279f660ed67dc999fc",
+      "src/replay.rs": "5763964f00aa3333abf5f93ef66042e45810e3dcdb4356ef48fcc12e84888781",
+      "src/trace.rs": "929ad71cb849cc24920757c20a8efc9695a4fc8efd5b48270d419c07c4f717eb",
+      "src/moves.rs": "3faa5a9a28d2fbbfd574bb79f6776989a544d446745b2f8114f27401272e6461",
+      "src/shown.rs": "a19beb3d0253790a4b447a544dc14243a26b7317600acd187e7b6c5a861b2ae4",
+      "src/data.rs": "7dfc059b49d136ba529e47798b4b49bc264fb7f20e76ef6fc051b758d03378a5",
+      "src/observer.rs": "65dc6e2b3f69b7617bcb3ead6870602b6e42c0792204351e6a8dd3831ab32431",
+      "src/battle.rs": "c6a6411a4319e5c0e8567df854680a44641a414f15421397439433210d357349",
+      "src/movecbs.rs": "3b7c3b9ac4594790abbb416015c84cd36e7b8735036543fbe3803bf935b76fc0",
+      "src/speed.rs": "ba88e6e83633ca5c8c165a61efe3eac69f0ed89d11ad51f35c1d26e5120b1c69",
+      "src/lib.rs": "6c157e49cfc5ab8052153e6f6b48f2ac0b5de5df6a01a8dfbfdc39b1e2030359",
+      "src/env.rs": "7790531bb6c7e9ddc20ad048dff82746ce92e4c98b49e93b587c81216d989b5b",
+      "src/events.rs": "9d1b2db0be2b3f80f383695471cda4d5b10027c028d1766ee578d922afdf6459",
+      "src/obs.rs": "15cd4ebe240147443a6e51e8e9d2e26ae204ea6128a3b54ce1056e4d2d5c9f8a",
+      "src/rng.rs": "fcd338af637e2a5279f5f138c67ddb97dfc4fb960a866896810343f16b1e9aa7",
+      "src/tables.rs": "16d156ed158bc7363ffca0e2f2ab600ee73cc09f5be2caffd0f63a3106e331eb",
+      "src/format.rs": "1f5fd0600559b059c034f915761307ab436f96594ca22be9400752e7a79cdcb5",
+      "src/teams.rs": "27d2e9a5692576d6d86f19b30397ba138d5bfba2fa68640121bc4d12b4132d09",
+      "src/position.rs": "87afa8131d2f45cac99c7e1d5d8aa6f7a0e509535253726b57298cd70bae3331",
+      "src/follow.rs": "1ed9915d5cc466061609fa4ed44abe01d6bc0c47e87a1708df8fba780809b20d",
+      "src/choice.rs": "300730f451bcd54e0055644bf5d75a831cbe3adab0e0aa7181df2fca84917ee3",
+      "src/bin/followcheck.rs": "4f0b1bb3efab179f3cc3747df12dd94196219f1fd1ad15a3fd7171cbc112a9f3",
+      "src/bin/difftest.rs": "3afbf6a191d660575f8fffc20ba9a8e1942da0d6b884a1a639d8ea4514d110bc",
+      "src/bin/bench.rs": "6fe61f509264ba4df1ba6b15bada7a595597e1ad20d7b615a973f4a0d6c79cb3",
+      "src/bin/envbench.rs": "7002fdf1a004583af0e31fd2d8f943da9c06074caac6f977f1669df9eec1b6aa",
+      "src/bin/teamcheck.rs": "742119ec3e89e80fb191307899a31748a552ac5540c679dcbbf4ce18faba8f27",
+      "src/bin/teampool.rs": "ad762bab5826e568e25085f0e8a0af8b7581849d960ec129216374ebe017b8c4"
+    },
+    "binaries": {
+      "followcheck": "517d52afd508f668759040550081cbca74bdbaf464806bae6d563bcd1f99facd",
+      "difftest": "6e5644aa1847c9e0544d410c2eb3c85644ff98c310d46561e39272803200e04a"
+    },
+    "source_unchanged": true
+  },
+  "checks": {
+    "follower_integration_tests_passed": 12,
+    "formatting_passed": true,
+    "whitespace_passed": true,
+    "large_regression_replay_performed": false,
+    "training_simulation_sources_changed": false
+  }
+}
