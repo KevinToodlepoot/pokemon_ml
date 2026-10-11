@@ -1388,3 +1388,9 @@ likely first steps when speed starts to matter.
    moving the pin, `node oracle/gen_data.js` regenerates the tables, a
    missing callback body panics with its name, and `scripts/fuzz.sh` finds
    behaviour changes.
+
+## Local observation comparisons
+
+Run fresh Showdown battles, compare observations and mechanics, and retain every
+failure's seeds, requests and logs with `scripts/compare-showdown.py`.
+See [the setup and failure-sharing instructions](docs/running-showdown-comparisons.md).

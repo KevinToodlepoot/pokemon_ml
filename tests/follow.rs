@@ -232,3 +232,61 @@ fn a_request_put_right_is_followed() {
     }
     assert!(met > 0, "no battle of the fixture has a Pokémon that may be trapped");
 }
+
+/// All twelve fresh sweep failures plus the tournament-valid single-Zoroark
+/// reproduction. Keep entire recordings to catch persistent inference errors.
+#[test]
+fn fresh_sweep_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/fresh_sweep_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 13);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        let mut individual = FollowTally::default();
+        assert!(matches!(check_follow(case, &mut individual), Outcome::Pass(_)), "case {}", case.id);
+        assert_eq!(individual.wrong, 0, "case {}: {:?}", case.id, individual.first_wrong);
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)));
+    }
+    assert_eq!(tally.observations, 951);
+    assert_eq!(tally.wrong, 0);
+}
+
+/// Equality alone missed this before: both implementations restored stale types.
+/// The public Soak line establishes Water after Reflect Type, with no silent reset.
+#[test]
+fn explicit_soak_supersedes_reflect_type_knowledge() {
+    let case: FollowCase = include_str!("fixtures/sweep_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str::<FollowCase>(line).unwrap())
+        .find(|case| case.id == 716)
+        .unwrap();
+    let mut me = follower_for(&case, 1);
+    me.lines(&Follower::own_lines(1, &case.initial.log)).unwrap();
+    me.request(&case.initial.requests[1].to_string()).unwrap();
+    for step in &case.steps[..16] {
+        me.lines(&Follower::own_lines(1, &step.after.log)).unwrap();
+        me.request(&step.after.requests[1].to_string()).unwrap();
+    }
+    let b = me.battle().unwrap();
+    assert_eq!(b.mon(b.active(1, 1)).types, [vgc_engine::data::Type::Water, vgc_engine::data::Type::None]);
+}
+
+#[test]
+fn private_items_track_symbiosis_transfers_between_requests() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/item_transfer_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 21);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        let mut individual = FollowTally::default();
+        assert!(matches!(check_follow(case, &mut individual), Outcome::Pass(_)), "case {}", case.id);
+        assert_eq!(individual.wrong, 0, "case {}: {:?}", case.id, individual.first_wrong);
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)));
+    }
+    assert_eq!(tally.observations, 1103);
+    assert_eq!(tally.wrong, 0);
+}

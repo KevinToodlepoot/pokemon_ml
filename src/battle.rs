@@ -523,6 +523,9 @@ impl Battle {
         m.added_type = Type::None;
         // (Said in so many words, to both sides: `-start|pokemon|typechange|types`.)
         (m.said.seen, m.said.apparent, m.said.known) = ([types; 2], types, true);
+        // Showdown setType makes these types known. A later explicit change
+        // supersedes Reflect Type, without requiring a silent turn-end revelation.
+        (m.said.copied, m.said.copied_foe, m.said.told) = (false, false, false);
         true
     }
 

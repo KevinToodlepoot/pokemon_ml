@@ -1,0 +1,575 @@
+{
+  "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+  "cases": [
+    {
+      "key": "new-item-control-closed-battle-145",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 145,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        5992,
+        63784,
+        47186,
+        25820
+      ],
+      "initial_candidate_differing_observations": 19,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-closed-battle-157",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 157,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        22224,
+        384,
+        53844,
+        31857
+      ],
+      "initial_candidate_differing_observations": 2,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-closed-battle-391",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 391,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        45862,
+        2589,
+        46042,
+        18122
+      ],
+      "initial_candidate_differing_observations": 29,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-closed-battle-423",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 423,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        22042,
+        30384,
+        13557,
+        49941
+      ],
+      "initial_candidate_differing_observations": 14,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-closed-battle-436",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 436,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        24799,
+        45196,
+        20793,
+        19348
+      ],
+      "initial_candidate_differing_observations": 25,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-closed-battle-538",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011117,
+        "original_id": 538,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        6563,
+        19170,
+        61879,
+        53514
+      ],
+      "initial_candidate_differing_observations": 1,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-143",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 143,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        1226,
+        8550,
+        59086,
+        17245
+      ],
+      "initial_candidate_differing_observations": 17,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-276",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 276,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        22055,
+        30879,
+        52289,
+        57052
+      ],
+      "initial_candidate_differing_observations": 1,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-458",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 458,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        23073,
+        28708,
+        65437,
+        37563
+      ],
+      "initial_candidate_differing_observations": 4,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-572",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 572,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        9933,
+        54211,
+        57032,
+        57955
+      ],
+      "initial_candidate_differing_observations": 10,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-766",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 766,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        20452,
+        10863,
+        27455,
+        28901
+      ],
+      "initial_candidate_differing_observations": 1,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "new-item-control-open-battle-920",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 97011118,
+        "original_id": 920,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        47719,
+        6831,
+        33321,
+        61993
+      ],
+      "initial_candidate_differing_observations": 2,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-general-20-battle-470",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011020,
+        "original_id": 470,
+        "part": 0,
+        "options": [
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        5527,
+        55215,
+        9776,
+        36850
+      ],
+      "initial_candidate_differing_observations": 18,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-closed-battle-259",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011117,
+        "original_id": 259,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        30491,
+        8098,
+        11654,
+        16652
+      ],
+      "initial_candidate_differing_observations": 4,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-closed-battle-794",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011117,
+        "original_id": 794,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        37533,
+        9434,
+        49756,
+        22924
+      ],
+      "initial_candidate_differing_observations": 29,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-closed-battle-906",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011117,
+        "original_id": 906,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        41443,
+        7257,
+        34056,
+        46899
+      ],
+      "initial_candidate_differing_observations": 11,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-closed-battle-955",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011117,
+        "original_id": 955,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry"
+        ]
+      },
+      "battle_seed": [
+        34422,
+        13820,
+        32348,
+        12921
+      ],
+      "initial_candidate_differing_observations": 6,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-open-battle-285",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011118,
+        "original_id": 285,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        24683,
+        2092,
+        42895,
+        62989
+      ],
+      "initial_candidate_differing_observations": 31,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-open-battle-386",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011118,
+        "original_id": 386,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        30261,
+        31325,
+        39487,
+        26940
+      ],
+      "initial_candidate_differing_observations": 23,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-open-battle-577",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011118,
+        "original_id": 577,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        17646,
+        36580,
+        29844,
+        32602
+      ],
+      "initial_candidate_differing_observations": 10,
+      "fixed_differing_observations": 0
+    },
+    {
+      "key": "previous-item-control-open-battle-969",
+      "issue": "OBS-NEW-005 transfer regression",
+      "generation": {
+        "seed": 26011118,
+        "original_id": 969,
+        "part": 0,
+        "options": [
+          "--moves",
+          "trick,switcheroo,knockoff,fling,recycle,covet,thief",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "klutz,unburden,stickyhold,symbiosis,pickpocket",
+          "--items",
+          "choicescarf,mentalherb,ejectbutton,redcard,ironball,airballoon,sitrusberry",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        32708,
+        36145,
+        44475,
+        57299
+      ],
+      "initial_candidate_differing_observations": 9,
+      "fixed_differing_observations": 0
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # Fresh 50,000-battle validation after the observation fixes
 
+**Follow-up:** the seven causes below are addressed in [the subsequent fixes](showdown-new-observation-fixes.md). This report preserves the original baseline findings and seeds.
+
 Completed 50,000 newly generated Showdown battles: **2,489,957 compared observations, 81 differing observations (93 scalar features) in 12 battles, grouped into seven confirmed causes**. **71** differences occurred at actionable observations and **10** at wait/switch observations. **All 50,000 battles match Showdown’s mechanics at 1,202,841 decisions.** No engine changes were applied during this sweep.
 
 | Issue | Cause | Battles | Differing observations | Actionable |

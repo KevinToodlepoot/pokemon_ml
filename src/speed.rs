@@ -619,10 +619,22 @@ pub(crate) fn own_speed(
 /// Ten times the priority a move has from a Pokémon, worked out by its own
 /// side from what it knows (its ability now, and the one it began the turn
 /// with). `None` where [`priority`] cannot say.
-pub(crate) fn own_priority(s: &Seen, ability: u16, field: &FieldSeen, move_id: u16) -> Option<i32> {
+pub(crate) fn own_priority(
+    s: &Seen,
+    ability: u16,
+    field: &FieldSeen,
+    move_id: u16,
+    grounded: Option<bool>,
+) -> Option<i32> {
     let known = Know::Is(if s.gastro_acid { ab::NOABILITY } else { ability });
     // (Whether it goes last in its bracket, as with Stall, its side knows too: that is
     // worked out apart, from how things stood when it chose.)
+    if move_id == mv::GRASSYGLIDE && field.terrain == Terrain::Grassyterrain {
+        let mut ordinary = *field;
+        ordinary.terrain = Terrain::None;
+        let bonus = 10 * grounded? as i32;
+        return bracket(s, &known, &ordinary, move_id).map(|p| p + bonus);
+    }
     bracket(s, &known, field, move_id)
 }
 
