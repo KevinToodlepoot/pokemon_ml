@@ -1,0 +1,1396 @@
+{
+  "schema_version": 1,
+  "reference": "Pokemon Showdown",
+  "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+  "uploaded_run_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-11T18:29:55Z",
+    "engine_commit": "370cdffef90b83569f6ad4acd5f5ef62a5623276",
+    "working_tree": "?? teams/",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.8.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "2004cd554c84dda78699380db5e76fb675f061481964e8286199070c53618867",
+      "difftest": "1f03cf9c6f899ffd20414cf923cab4ded470415caad644460aa32745f1ca6192"
+    },
+    "build_requested": true,
+    "command": [
+      "scripts/compare-showdown.py",
+      "--battles",
+      "50000",
+      "--seed",
+      "20261013",
+      "--workers",
+      "4",
+      "--out",
+      "runs/showdown-20261013"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-11T18:40:26Z",
+    "generator_unchanged": true
+  },
+  "uploaded_run_summary": {
+    "completed_batches": 50,
+    "compared_battles": 50000,
+    "failing_battles": 5,
+    "elapsed_seconds": 631,
+    "observations_actionable_differences": 85,
+    "observations_decisions": 1186547,
+    "observations_differences": 101,
+    "observations_failed": 0,
+    "observations_followed": 50000,
+    "observations_observations": 2456660,
+    "observations_passed_over": 16434,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 1186547,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 50000,
+    "mechanics_unsupported": 0
+  },
+  "uploaded_failing_cases": [
+    {
+      "key": "0009-pressure-battle-232",
+      "generation": {
+        "seed": 28261037,
+        "original_id": 232,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus",
+          "--moves",
+          "encore,expandingforce,curse,comeuppance,metalburst"
+        ]
+      },
+      "battle_seed": [
+        7016,
+        36091,
+        40341,
+        18456
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 0,
+        "actionable_observations": 26,
+        "decisions": 15,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 232 step 5 side 0: own mon: pp: the game has 0.75 (at 368), the follower -1"
+        ],
+        "id": 232,
+        "observations": 32,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 15,
+        "errors": [],
+        "id": 232,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 26,
+        "decisions": 15,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 232,
+        "observations": 32,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0011-general-battle-857",
+      "generation": {
+        "seed": 30261043,
+        "original_id": 873,
+        "options": []
+      },
+      "battle_seed": [
+        23033,
+        30364,
+        59106,
+        38304
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 39,
+        "actionable_observations": 164,
+        "decisions": 95,
+        "differences": 52,
+        "errors": [],
+        "first_differences": [
+          "battle 857 step 43 side 0: their mon: speed high: the game has 0.705 (at 527), the follower 0.845"
+        ],
+        "id": 857,
+        "observations": 192,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 95,
+        "errors": [],
+        "id": 857,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 164,
+        "decisions": 95,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 857,
+        "observations": 192,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0014-choice-swap-battle-266",
+      "generation": {
+        "seed": 33261052,
+        "original_id": 265,
+        "options": [
+          "--abilities",
+          "klutz,innerfocus,pressure",
+          "--items",
+          "choicescarf,mentalherb,leftovers",
+          "--moves",
+          "skillswap,encore,magicroom,trick,switcheroo,instruct",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        46471,
+        15495,
+        11126,
+        47265
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 3,
+        "actionable_observations": 66,
+        "decisions": 35,
+        "differences": 3,
+        "errors": [],
+        "first_differences": [
+          "battle 266 step 16 side 0: their mon: speed high: the game has 0.555 (at 683), the follower 0.56"
+        ],
+        "id": 266,
+        "observations": 72,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 35,
+        "errors": [],
+        "id": 266,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 66,
+        "decisions": 35,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 266,
+        "observations": 72,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0019-mental-herb-battle-472",
+      "generation": {
+        "seed": 38261067,
+        "original_id": 473,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,klutz",
+          "--items",
+          "mentalherb,choicescarf,leftovers",
+          "--moves",
+          "encore,taunt,disable,torment,throatchop,imprison",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        52343,
+        51667,
+        7608,
+        24630
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 1,
+        "actionable_observations": 53,
+        "decisions": 28,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 472 step 3 side 0: own mon: pp: the game has 1 (at 213), the follower 0.8"
+        ],
+        "id": 472,
+        "observations": 58,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 28,
+        "errors": [],
+        "id": 472,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 53,
+        "decisions": 28,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 472,
+        "observations": 58,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    },
+    {
+      "key": "0035-airborne-battle-565",
+      "generation": {
+        "seed": 54261115,
+        "original_id": 576,
+        "options": [
+          "--moves",
+          "gravity,smackdown,fly,bounce,magnetrise,skyattack,meteorbeam,phantomforce,dive",
+          "--moves-per",
+          "3"
+        ]
+      },
+      "battle_seed": [
+        13237,
+        3285,
+        39672,
+        39755
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 42,
+        "actionable_observations": 50,
+        "decisions": 25,
+        "differences": 44,
+        "errors": [],
+        "first_differences": [
+          "battle 565 step 3 side 0: own mon id: lost item: the game has 147 (at 26), the follower 0"
+        ],
+        "id": 565,
+        "observations": 52,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 25,
+        "errors": [],
+        "id": 565,
+        "status": "matched"
+      },
+      "observations_after": {
+        "actionable_differences": 0,
+        "actionable_observations": 50,
+        "decisions": 25,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 565,
+        "observations": 52,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    }
+  ],
+  "exact_regression_results": {
+    "observations_before": {
+      "actionable_differences": 85,
+      "decisions": 198,
+      "differences": 101,
+      "failed": 0,
+      "followed": 5,
+      "observations": 406,
+      "passed_over": 0,
+      "unsupported": 0
+    },
+    "observations_after": {
+      "actionable_differences": 0,
+      "decisions": 198,
+      "differences": 0,
+      "failed": 0,
+      "followed": 5,
+      "observations": 406,
+      "passed_over": 0,
+      "unsupported": 0
+    },
+    "mechanics_after": {
+      "decisions": 198,
+      "diverged": 0,
+      "matched": 5,
+      "unsupported": 0
+    }
+  },
+  "targeted_validation": {
+    "unique_battles": 1000,
+    "generator_base_seed": 847292607,
+    "groups": 5,
+    "battles_per_group": 200,
+    "open_sheets_battles": 500,
+    "closed_sheets_battles": 500,
+    "manifest": [
+      {
+        "label": "0001-armor-tail-pressure-closed",
+        "seed": 847292607,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "pressure,armortail,innerfocus",
+          "--moves",
+          "encore,upperhand,curse,comeuppance",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0002-armor-tail-pressure-open",
+        "seed": 848292610,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "pressure,armortail,innerfocus",
+          "--moves",
+          "encore,upperhand,curse,comeuppance",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0003-quick-feet-confusion-closed",
+        "seed": 849292613,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "quickfeet,innerfocus",
+          "--moves",
+          "rest,reflect,flatter,swagger",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0004-quick-feet-confusion-open",
+        "seed": 850292616,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "quickfeet,innerfocus",
+          "--moves",
+          "rest,reflect,flatter,swagger",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0005-encore-herb-transfer-closed",
+        "seed": 851292619,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,klutz",
+          "--items",
+          "mentalherb,choicescarf,leftovers",
+          "--moves",
+          "encore,trick,switcheroo,magicroom,foulplay",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0006-encore-herb-transfer-open",
+        "seed": 852292622,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "innerfocus,pressure,klutz",
+          "--items",
+          "mentalherb,choicescarf,leftovers",
+          "--moves",
+          "encore,trick,switcheroo,magicroom,foulplay",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0007-transform-choice-room-closed",
+        "seed": 853292625,
+        "n": 100,
+        "options": [
+          "--species",
+          "ditto,klefki",
+          "--abilities",
+          "innerfocus",
+          "--items",
+          "choicescarf,leftovers",
+          "--moves",
+          "transform,magicroom,torment,sleeptalk",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0008-transform-choice-room-open",
+        "seed": 854292628,
+        "n": 100,
+        "options": [
+          "--species",
+          "ditto,klefki",
+          "--abilities",
+          "innerfocus",
+          "--items",
+          "choicescarf,leftovers",
+          "--moves",
+          "transform,magicroom,torment,sleeptalk",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      {
+        "label": "0009-poltergeist-berry-closed",
+        "seed": 855292631,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "parentalbond,pressure",
+          "--items",
+          "sitrusberry",
+          "--moves",
+          "poltergeist,nightshade,rest",
+          "--moves-per",
+          "3"
+        ]
+      },
+      {
+        "label": "0010-poltergeist-berry-open",
+        "seed": 856292634,
+        "n": 100,
+        "options": [
+          "--abilities",
+          "parentalbond,pressure",
+          "--items",
+          "sitrusberry",
+          "--moves",
+          "poltergeist,nightshade,rest",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      }
+    ],
+    "coverage_counters": {
+      "armor_tail_blocks": 199,
+      "upper_hand_moves": 518,
+      "transforms": 312,
+      "magic_room_starts": 588,
+      "torment_starts": 814,
+      "mental_herb_consumptions": 165,
+      "encore_starts": 1167,
+      "empty_poltergeist_hits": 15,
+      "wakes_followed_by_confusion_check": 183
+    },
+    "observations_before": {
+      "actionable_differences": 602,
+      "decisions": 30113,
+      "differences": 656,
+      "failed": 0,
+      "followed": 1000,
+      "observations": 61931,
+      "passed_over": 295,
+      "unsupported": 0
+    },
+    "before_differing_battles": 21,
+    "observations_after": {
+      "actionable_differences": 0,
+      "decisions": 30113,
+      "differences": 0,
+      "failed": 0,
+      "followed": 1000,
+      "observations": 61931,
+      "passed_over": 295,
+      "unsupported": 0
+    },
+    "mechanics_after": {
+      "decisions": 30113,
+      "diverged": 0,
+      "matched": 1000,
+      "unsupported": 0
+    },
+    "fixed_source_provenance": {
+      "engine_base_commit": "c4198678e304d4d80d1824b62f49ac5158d14902",
+      "source_hashes": {
+        "src/state.rs": "e9ef424cc9e7f5a578b330313ed1f820ec44fa5d2d94b596c29633fff8ef2015",
+        "src/conditions.rs": "e3de621f01e629edfabad4beacbf4ea3a49e2b9c99b5769cb2688c884682cc96",
+        "src/python.rs": "795cbe3d8a907757582311c8fa8dd8e701b87d5965848d8fc20c0f84da1ee5f4",
+        "src/items.rs": "4ed2bcb6f1a27caa943e2ce56e0e90f94dbb216ebe27c5e97fde17d02174bee9",
+        "src/abilities.rs": "11affb95e631f8c289d9fd3e17b46c9300b7b54b42510c279f660ed67dc999fc",
+        "src/replay.rs": "5763964f00aa3333abf5f93ef66042e45810e3dcdb4356ef48fcc12e84888781",
+        "src/trace.rs": "929ad71cb849cc24920757c20a8efc9695a4fc8efd5b48270d419c07c4f717eb",
+        "src/moves.rs": "3faa5a9a28d2fbbfd574bb79f6776989a544d446745b2f8114f27401272e6461",
+        "src/shown.rs": "a19beb3d0253790a4b447a544dc14243a26b7317600acd187e7b6c5a861b2ae4",
+        "src/data.rs": "7dfc059b49d136ba529e47798b4b49bc264fb7f20e76ef6fc051b758d03378a5",
+        "src/observer.rs": "c03ffbab00d61cccddcc016b7d581eed2d255cbc376e68bbbe48ed77d25ea753",
+        "src/battle.rs": "c6a6411a4319e5c0e8567df854680a44641a414f15421397439433210d357349",
+        "src/movecbs.rs": "3b7c3b9ac4594790abbb416015c84cd36e7b8735036543fbe3803bf935b76fc0",
+        "src/speed.rs": "ba88e6e83633ca5c8c165a61efe3eac69f0ed89d11ad51f35c1d26e5120b1c69",
+        "src/lib.rs": "6c157e49cfc5ab8052153e6f6b48f2ac0b5de5df6a01a8dfbfdc39b1e2030359",
+        "src/env.rs": "7790531bb6c7e9ddc20ad048dff82746ce92e4c98b49e93b587c81216d989b5b",
+        "src/events.rs": "9d1b2db0be2b3f80f383695471cda4d5b10027c028d1766ee578d922afdf6459",
+        "src/obs.rs": "15cd4ebe240147443a6e51e8e9d2e26ae204ea6128a3b54ce1056e4d2d5c9f8a",
+        "src/rng.rs": "fcd338af637e2a5279f5f138c67ddb97dfc4fb960a866896810343f16b1e9aa7",
+        "src/tables.rs": "16d156ed158bc7363ffca0e2f2ab600ee73cc09f5be2caffd0f63a3106e331eb",
+        "src/format.rs": "1f5fd0600559b059c034f915761307ab436f96594ca22be9400752e7a79cdcb5",
+        "src/teams.rs": "27d2e9a5692576d6d86f19b30397ba138d5bfba2fa68640121bc4d12b4132d09",
+        "src/position.rs": "87afa8131d2f45cac99c7e1d5d8aa6f7a0e509535253726b57298cd70bae3331",
+        "src/follow.rs": "8722697aa365b4457ce27f709b0901320a8664597d0e21a4bbdb98f3f80e5b0d",
+        "src/choice.rs": "300730f451bcd54e0055644bf5d75a831cbe3adab0e0aa7181df2fca84917ee3",
+        "src/bin/followcheck.rs": "4f0b1bb3efab179f3cc3747df12dd94196219f1fd1ad15a3fd7171cbc112a9f3",
+        "src/bin/difftest.rs": "3afbf6a191d660575f8fffc20ba9a8e1942da0d6b884a1a639d8ea4514d110bc",
+        "src/bin/bench.rs": "6fe61f509264ba4df1ba6b15bada7a595597e1ad20d7b615a973f4a0d6c79cb3",
+        "src/bin/envbench.rs": "7002fdf1a004583af0e31fd2d8f943da9c06074caac6f977f1669df9eec1b6aa",
+        "src/bin/teamcheck.rs": "742119ec3e89e80fb191307899a31748a552ac5540c679dcbbf4ce18faba8f27",
+        "src/bin/teampool.rs": "ad762bab5826e568e25085f0e8a0af8b7581849d960ec129216374ebe017b8c4"
+      },
+      "binaries": {
+        "followcheck": "91fdec52e967dc43b90f0abe6afdaea33e7c94d7db63b21ebe5bb51c078fa4c0",
+        "difftest": "ea566a1fa3e47dbd10b9d84a2e96d698a8496bdcb094b82e332044312605d623"
+      },
+      "source_unchanged": true
+    },
+    "negative_control_cases": [
+      {
+        "batch": "0003-quick-feet-confusion-closed",
+        "id": 19,
+        "generation": {
+          "seed": 849292613,
+          "original_id": 18,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          3790,
+          27477,
+          28447,
+          10963
+        ],
+        "observations_before": {
+          "actionable_differences": 1,
+          "actionable_observations": 112,
+          "decisions": 68,
+          "differences": 1,
+          "errors": [],
+          "first_differences": [
+            "battle 19 step 27 side 1: their mon: speed high: the game has 0.575 (at 683), the follower 0.96"
+          ],
+          "id": 19,
+          "observations": 138,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0003-quick-feet-confusion-closed",
+        "id": 62,
+        "generation": {
+          "seed": 849292613,
+          "original_id": 61,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          19607,
+          24977,
+          64284,
+          32099
+        ],
+        "observations_before": {
+          "actionable_differences": 18,
+          "actionable_observations": 51,
+          "decisions": 27,
+          "differences": 20,
+          "errors": [],
+          "first_differences": [
+            "battle 62 step 17 side 0: their mon: speed high: the game has 0.89 (at 527), the follower 0.595"
+          ],
+          "id": 62,
+          "observations": 56,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0003-quick-feet-confusion-closed",
+        "id": 66,
+        "generation": {
+          "seed": 849292613,
+          "original_id": 65,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          63668,
+          10890,
+          40132,
+          13877
+        ],
+        "observations_before": {
+          "actionable_differences": 2,
+          "actionable_observations": 82,
+          "decisions": 43,
+          "differences": 2,
+          "errors": [],
+          "first_differences": [
+            "battle 66 step 9 side 1: their mon: speed high: the game has 0.62 (at 631), the follower 0.565"
+          ],
+          "id": 66,
+          "observations": 88,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0003-quick-feet-confusion-closed",
+        "id": 96,
+        "generation": {
+          "seed": 849292613,
+          "original_id": 96,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          11093,
+          55207,
+          26397,
+          59313
+        ],
+        "observations_before": {
+          "actionable_differences": 31,
+          "actionable_observations": 116,
+          "decisions": 60,
+          "differences": 33,
+          "errors": [],
+          "first_differences": [
+            "battle 96 step 27 side 0: their mon: speed high: the game has 0.725 (at 475), the follower 0.635"
+          ],
+          "id": 96,
+          "observations": 122,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0004-quick-feet-confusion-open",
+        "id": 42,
+        "generation": {
+          "seed": 850292616,
+          "original_id": 41,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          55860,
+          47836,
+          2970,
+          26927
+        ],
+        "observations_before": {
+          "actionable_differences": 14,
+          "actionable_observations": 44,
+          "decisions": 23,
+          "differences": 16,
+          "errors": [],
+          "first_differences": [
+            "battle 42 step 7 side 0: their mon: speed high: the game has 0.69 (at 423), the follower 0.71"
+          ],
+          "id": 42,
+          "observations": 48,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0004-quick-feet-confusion-open",
+        "id": 48,
+        "generation": {
+          "seed": 850292616,
+          "original_id": 47,
+          "options": [
+            "--abilities",
+            "quickfeet,innerfocus",
+            "--moves",
+            "rest,reflect,flatter,swagger",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          41304,
+          11703,
+          54275,
+          61017
+        ],
+        "observations_before": {
+          "actionable_differences": 10,
+          "actionable_observations": 148,
+          "decisions": 82,
+          "differences": 10,
+          "errors": [],
+          "first_differences": [
+            "battle 48 step 35 side 0: their mon: speed high: the game has 0.465 (at 475), the follower 0.51"
+          ],
+          "id": 48,
+          "observations": 166,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-poltergeist-berry-closed",
+        "id": 7,
+        "generation": {
+          "seed": 855292631,
+          "original_id": 6,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          24049,
+          44986,
+          19640,
+          17195
+        ],
+        "observations_before": {
+          "actionable_differences": 12,
+          "actionable_observations": 46,
+          "decisions": 24,
+          "differences": 16,
+          "errors": [],
+          "first_differences": [
+            "battle 7 step 16 side 0: their mon id: lost item: the game has 147 (at 74), the follower 0"
+          ],
+          "id": 7,
+          "observations": 50,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-poltergeist-berry-closed",
+        "id": 45,
+        "generation": {
+          "seed": 855292631,
+          "original_id": 44,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          3332,
+          48128,
+          8586,
+          34256
+        ],
+        "observations_before": {
+          "actionable_differences": 56,
+          "actionable_observations": 71,
+          "decisions": 38,
+          "differences": 62,
+          "errors": [],
+          "first_differences": [
+            "battle 45 step 7 side 0: own mon id: lost item: the game has 147 (at 2), the follower 0"
+          ],
+          "id": 45,
+          "observations": 78,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-poltergeist-berry-closed",
+        "id": 60,
+        "generation": {
+          "seed": 855292631,
+          "original_id": 59,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          38397,
+          28023,
+          15525,
+          24131
+        ],
+        "observations_before": {
+          "actionable_differences": 17,
+          "actionable_observations": 32,
+          "decisions": 18,
+          "differences": 22,
+          "errors": [],
+          "first_differences": [
+            "battle 60 step 7 side 0: their mon id: lost item: the game has 147 (at 58), the follower 0"
+          ],
+          "id": 60,
+          "observations": 38,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-poltergeist-berry-closed",
+        "id": 70,
+        "generation": {
+          "seed": 855292631,
+          "original_id": 69,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          65427,
+          45730,
+          37118,
+          44061
+        ],
+        "observations_before": {
+          "actionable_differences": 12,
+          "actionable_observations": 32,
+          "decisions": 16,
+          "differences": 12,
+          "errors": [],
+          "first_differences": [
+            "battle 70 step 10 side 0: their mon id: lost item: the game has 147 (at 82), the follower 0"
+          ],
+          "id": 70,
+          "observations": 34,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0009-poltergeist-berry-closed",
+        "id": 86,
+        "generation": {
+          "seed": 855292631,
+          "original_id": 86,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3"
+          ]
+        },
+        "battle_seed": [
+          55702,
+          36795,
+          717,
+          52858
+        ],
+        "observations_before": {
+          "actionable_differences": 50,
+          "actionable_observations": 64,
+          "decisions": 33,
+          "differences": 54,
+          "errors": [],
+          "first_differences": [
+            "battle 86 step 6 side 0: their mon id: lost item: the game has 147 (at 66), the follower 0"
+          ],
+          "id": 86,
+          "observations": 68,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 4,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 3,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          12232,
+          17936,
+          53131,
+          20100
+        ],
+        "observations_before": {
+          "actionable_differences": 78,
+          "actionable_observations": 84,
+          "decisions": 44,
+          "differences": 84,
+          "errors": [],
+          "first_differences": [
+            "battle 4 step 2 side 0: their mon id: lost item: the game has 147 (at 74), the follower 0"
+          ],
+          "id": 4,
+          "observations": 90,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 32,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 31,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          13950,
+          818,
+          60416,
+          8702
+        ],
+        "observations_before": {
+          "actionable_differences": 44,
+          "actionable_observations": 78,
+          "decisions": 41,
+          "differences": 46,
+          "errors": [],
+          "first_differences": [
+            "battle 32 step 18 side 0: their mon id: lost item: the game has 147 (at 50), the follower 0"
+          ],
+          "id": 32,
+          "observations": 84,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 37,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 36,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          4550,
+          23180,
+          12974,
+          28858
+        ],
+        "observations_before": {
+          "actionable_differences": 30,
+          "actionable_observations": 88,
+          "decisions": 46,
+          "differences": 30,
+          "errors": [],
+          "first_differences": [
+            "battle 37 step 31 side 0: own mon id: lost item: the game has 147 (at 2), the follower 0"
+          ],
+          "id": 37,
+          "observations": 94,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 40,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 39,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          51106,
+          61681,
+          20201,
+          10280
+        ],
+        "observations_before": {
+          "actionable_differences": 10,
+          "actionable_observations": 40,
+          "decisions": 21,
+          "differences": 10,
+          "errors": [],
+          "first_differences": [
+            "battle 40 step 16 side 0: own mon id: lost item: the game has 147 (at 26), the follower 0"
+          ],
+          "id": 40,
+          "observations": 44,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 43,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 42,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          6278,
+          63696,
+          33563,
+          49523
+        ],
+        "observations_before": {
+          "actionable_differences": 25,
+          "actionable_observations": 42,
+          "decisions": 25,
+          "differences": 32,
+          "errors": [],
+          "first_differences": [
+            "battle 43 step 9 side 0: their mon id: lost item: the game has 147 (at 66), the follower 0"
+          ],
+          "id": 43,
+          "observations": 52,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 47,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 46,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          2956,
+          39410,
+          23204,
+          48433
+        ],
+        "observations_before": {
+          "actionable_differences": 79,
+          "actionable_observations": 121,
+          "decisions": 65,
+          "differences": 86,
+          "errors": [],
+          "first_differences": [
+            "battle 47 step 22 side 0: their mon id: lost item: the game has 147 (at 50), the follower 0"
+          ],
+          "id": 47,
+          "observations": 132,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 49,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 48,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          14551,
+          43942,
+          19347,
+          10816
+        ],
+        "observations_before": {
+          "actionable_differences": 34,
+          "actionable_observations": 62,
+          "decisions": 33,
+          "differences": 34,
+          "errors": [],
+          "first_differences": [
+            "battle 49 step 16 side 0: their mon id: lost item: the game has 147 (at 50), the follower 0"
+          ],
+          "id": 49,
+          "observations": 68,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 51,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 50,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          45062,
+          14197,
+          35545,
+          37588
+        ],
+        "observations_before": {
+          "actionable_differences": 6,
+          "actionable_observations": 40,
+          "decisions": 22,
+          "differences": 6,
+          "errors": [],
+          "first_differences": [
+            "battle 51 step 19 side 0: their mon id: lost item: the game has 147 (at 90), the follower 0"
+          ],
+          "id": 51,
+          "observations": 46,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 66,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 65,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          9457,
+          52731,
+          33275,
+          38320
+        ],
+        "observations_before": {
+          "actionable_differences": 28,
+          "actionable_observations": 50,
+          "decisions": 26,
+          "differences": 28,
+          "errors": [],
+          "first_differences": [
+            "battle 66 step 12 side 0: their mon id: lost item: the game has 147 (at 74), the follower 0"
+          ],
+          "id": 66,
+          "observations": 54,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      },
+      {
+        "batch": "0010-poltergeist-berry-open",
+        "id": 79,
+        "generation": {
+          "seed": 856292634,
+          "original_id": 78,
+          "options": [
+            "--abilities",
+            "parentalbond,pressure",
+            "--items",
+            "sitrusberry",
+            "--moves",
+            "poltergeist,nightshade,rest",
+            "--moves-per",
+            "3",
+            "--open-sheets"
+          ]
+        },
+        "battle_seed": [
+          60425,
+          32965,
+          18462,
+          56111
+        ],
+        "observations_before": {
+          "actionable_differences": 45,
+          "actionable_observations": 49,
+          "decisions": 27,
+          "differences": 52,
+          "errors": [],
+          "first_differences": [
+            "battle 79 step 1 side 0: their mon id: lost item: the game has 147 (at 74), the follower 0"
+          ],
+          "id": 79,
+          "observations": 56,
+          "passed_over": 0,
+          "status": "followed"
+        }
+      }
+    ]
+  },
+  "checks": {
+    "follower_integration_tests_passed": 11,
+    "formatting_passed": true,
+    "whitespace_passed": true,
+    "broad_archived_replay": "stopped at user request; not used as the completion criterion",
+    "full_rust_suite": "stopped during unrelated bot benchmark; no full-suite completion claimed"
+  },
+  "fresh_exploration_command": "python3 scripts/compare-showdown.py --battles 50000 --seed 847291603 --workers 4 --out runs/showdown-847291603"
+}

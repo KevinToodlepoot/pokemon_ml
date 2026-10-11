@@ -803,7 +803,11 @@ impl Observer {
                     }
                     "move: Poltergeist" => {
                         let i = item(arg(4))?;
-                        self.rec(&id).item = ItemShown::Holds(i);
+                        // A later hit can name an empty slot after the first hit
+                        // consumed a berry. Keep the already announced loss.
+                        if i != it::NONE {
+                            self.rec(&id).item = ItemShown::Holds(i);
+                        }
                     }
                     _ => {}
                 }

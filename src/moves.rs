@@ -396,9 +396,9 @@ impl Battle {
             try_move = self.run_event(Ev::TryMove, Some(pokemon), target, me, Res::Undef);
         }
         if !try_move.truthy() {
-            if self.am[m].flags & F_CHARGE != 0 && self.vols(pokemon).has(VolKind::Twoturnmove) {
-                self.hide_pp_target(pokemon, mi);
-            }
+            // TryMove failures remove the target with Showdown's [still],
+            // including priority moves stopped by Armor Tail/Queenly Majesty.
+            self.hide_pp_target(pokemon, mi);
             return try_move;
         }
 

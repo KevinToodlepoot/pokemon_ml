@@ -1,5 +1,7 @@
 # Fixes for the seven fresh observation failures
 
+The later local run found five additional cases on this fixed version. See [their causes and fixes](showdown-local-sweep-fixes.md).
+
 The 12 battles from the fresh 50,000-battle sweep had 81 differing observations (93 scalar features). The changes below address their seven confirmed causes using pinned Pokémon Showdown commit `ad7ca5d51c03865e6829dbec3a7875df71480fb8` as the reference.
 
 | Cause | Fix |
