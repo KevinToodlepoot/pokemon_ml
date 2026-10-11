@@ -399,6 +399,8 @@ struct Begun {
     /// A nameless cant tentatively consumed Round; a later Snore can disprove it.
     round_before: Option<Option<usize>>,
     overridden: Option<usize>,
+    /// Encore is still active as this move begins; replacement can outlive it.
+    encored: bool,
     quick: bool,
     seen: [Seen; 4],
     field: FieldSeen,
@@ -923,7 +925,11 @@ impl Follower {
                 self.rounds.push(self.begun.len());
             }
         }
-        if !(kind == "-curestatus" && parts.contains(&"[msg]")) {
+        // Confusion is checked after waking but before the move line. The
+        // queue was sorted while asleep, including Quick Feet's Speed bonus.
+        if !(kind == "-curestatus" && parts.contains(&"[msg]"))
+            && !(matches!(kind, "-activate" | "-end") && arg(3) == "confusion")
+        {
             self.roused = None;
         }
         let held = |me: &Follower| -> [Option<(ItemShown, u16, bool)>; 4] {
@@ -1167,6 +1173,7 @@ impl Follower {
             reordered: spot.reordered,
             round_before,
             overridden: spot.overridden,
+            encored: spot.has(VolKind::Encore),
             quick: spot.quick,
             seen,
             field,
@@ -2260,10 +2267,9 @@ impl Follower {
             }
             let live = if k < ACTIVE { self.reader.sides[self.side].active[k].as_ref() } else { None };
             let transformed = live.is_some_and(|l| l.transformed && !l.gone);
-            if k < ACTIVE
-                && self.spots[self.side][k].choice.is_some_and(|held| !self.own[idx].pp.iter().any(|s| s.0 == held))
-            {
-                // (Held to a move it does not have, one it was made to use: the hold lapses.)
+            if k < ACTIVE && self.spots[self.side][k].choice.is_some_and(|held| !mon.moves.contains(&held)) {
+                // The private request names the current moveset, even after
+                // Transform and before the copied PP cache is filled.
                 self.spots[self.side][k].choice = None;
             }
             let own = &mut self.own[idx];
@@ -2655,7 +2661,7 @@ impl Follower {
             frac: s.quick as i8,
             speed: 0,
             move_id: if s.named == NO_MOVE { 0 } else { s.named },
-            encored: s.overridden.is_some(),
+            encored: s.encored,
         };
         if s.again || s.instructed || s.reordered.is_some_and(|t| t <= at) {
             q.order = 3;

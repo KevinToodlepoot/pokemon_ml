@@ -23,6 +23,53 @@ fn cases() -> Vec<FollowCase> {
 }
 
 #[test]
+fn locally_saved_sweep_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/local_sweep_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 5);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        // Check the reference behavior directly, as well as engine/client parity.
+        let steps = match case.id {
+            232 => 5,
+            857 => 43,
+            266 => 16,
+            472 | 565 => 3,
+            _ => panic!("unexpected local sweep case"),
+        };
+        let mut me = follower_for(case, 0);
+        me.lines(&Follower::own_lines(0, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[0].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(0, &step.after.log)).unwrap();
+            me.request(&step.after.requests[0].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        match case.id {
+            232 => assert_eq!(f[368], -1.0, "Armor Tail hides the rerolled target's Pressure cost"),
+            857 => {
+                assert_eq!(f[527], 141.0 / 200.0, "waking through confusion preserves the Speed bound");
+                assert_eq!(f[528], 0.0, "the observed ordering excludes speed-modifying items");
+            }
+            266 => assert_eq!(f[683], 111.0 / 200.0, "a cured Encore permits Speed evidence"),
+            472 => assert_eq!(f[213], 1.0, "Choice refusal does not spend copied Sleep Talk PP"),
+            565 => assert_eq!(
+                i[26],
+                vgc_engine::data::item_id("sitrusberry").unwrap() as i16 + vgc_engine::obs::ID_BASE,
+                "an empty Poltergeist hit keeps the lost berry"
+            ),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(tally.observations, 406);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn a_follower_sees_what_the_simulator_sees() {
     let mut tally = FollowTally::default();
     let (mut battles, mut decisions) = (0, 0);
