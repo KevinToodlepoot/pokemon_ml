@@ -356,6 +356,8 @@ struct OwnNow {
     item: u16,
     /// It has lost an item since it came in.
     lost_item: bool,
+    /// Whether its known ability, item and field conditions put it on the ground.
+    grounded: Option<bool>,
     /// Its Speed stat.
     stat: u16,
 }
@@ -1070,16 +1072,10 @@ impl Follower {
         // The species it is now: as the request had it, or the forme it has taken since.
         let species = self.spots[self.side][pos].forme.filter(|_| !is_mega(mon.species)).unwrap_or(mon.species);
         let rec = &live.rec;
-        // Its item: what the other side has been shown of it, and failing that what the
-        // request said. For one of its own in disguise the record is of the Pokémon it
-        // passes for, and it goes by the request and what the log has said since.
-        let disguised = self.reader.sides[self.side].team.get(live.entry).is_some_and(|e| e.name != own.name);
-        let item = match rec.item {
-            _ if disguised => self.spots[self.side][pos].item_since.unwrap_or(mon.item),
-            ItemShown::Holds(item) => item,
-            ItemShown::Lost(_) => it::NONE,
-            ItemShown::Unknown => mon.item,
-        };
+        // The private request identifies its actual item, even when an Illusion alias's
+        // public record belongs to a different Pokémon. Only changes since that request
+        // can override it; the position's item_since is reset on entry and on requests.
+        let item = self.spots[self.side][pos].item_since.unwrap_or(mon.item);
         let stat = calc_stats(species, set.nature, set.stat_points)[5];
         let mut abilities = Vec::new();
         if let Some(known) = &self.spots[self.side][pos].own_abilities {
@@ -1098,7 +1094,25 @@ impl Follower {
                 abilities.push(req.mons.iter().find(|m| m.name == partner.name)?.ability);
             }
         }
-        Some(OwnNow { seen, abilities, item, lost_item: self.spots[self.side][pos].lost_item, stat })
+        // Opposing grounding can be hidden. Own grounding is exact unless an allied
+        // ability swap left several possibilities that disagree about it.
+        let grounded = if self.field.terrain == Terrain::Grassyterrain {
+            self.rebuild().ok().and_then(|b| {
+                let values: Vec<_> = abilities
+                    .iter()
+                    .map(|&ability| {
+                        let mut b = b;
+                        let r = b.active(self.side, pos);
+                        (b.mon_mut(r).ability, b.mon_mut(r).item) = (ability, item);
+                        b.is_grounded(r, false)
+                    })
+                    .collect();
+                values.first().copied().filter(|g| values.iter().all(|v| v == g))
+            })
+        } else {
+            None
+        };
+        Some(OwnNow { seen, abilities, item, grounded, lost_item: self.spots[self.side][pos].lost_item, stat })
     }
 
     /// A queued move of whoever is at a position begins.
@@ -1508,6 +1522,20 @@ impl Follower {
                     let mut aimed: Vec<(usize, usize)> = Vec::new();
                     let data = &MOVES[used as usize];
                     let replaced = queued && self.queued_since(side, pos, used).is_some();
+                    // Ghost Curse rerolls an allied/missing selected target to a random foe.
+                    // A failed execution can omit that foe from the public move line.
+                    let curse = used == mv::CURSE;
+                    let ghost = curse
+                        && (self.seen_base(side, pos).contains(&Type::Ghost)
+                            || self.spots[side][pos].added == Type::Ghost);
+                    let chosen_loc = self.chosen.iter().find(|c| c.0 == self.own_at[pos]).map(|c| c.2);
+                    let target = if curse && !ghost {
+                        Target::User
+                    } else if ghost && (!queued || replaced || chosen_loc.is_none_or(|loc| loc <= 0)) {
+                        Target::RandomNormal
+                    } else {
+                        data.target
+                    };
                     let expanding = used == mv::EXPANDINGFORCE
                         && self.field.terrain == Terrain::Psychicterrain
                         && self.rebuild().is_ok_and(|mut b| {
@@ -1516,12 +1544,12 @@ impl Follower {
                         });
                     let wide = data.flags & F_MUSTPRESSURE != 0
                         || expanding
-                        || matches!(data.target, Target::All | Target::AllAdjacent | Target::AllAdjacentFoes);
+                        || matches!(target, Target::All | Target::AllAdjacent | Target::AllAdjacentFoes);
                     if wide {
                         // A move on the whole field, on everyone across it, or one of the few
                         // (Imprison, Spikes) that pay to every opponent: whether or not it lands.
                         aimed.extend([(1 - side, 0), (1 - side, 1)]);
-                    } else if data.target == Target::FoeSide || parts.contains(&"[notarget]") {
+                    } else if target == Target::FoeSide || parts.contains(&"[notarget]") {
                         // (Any other move laid on the far side of the field pays nothing extra.
                         // Nor does one left with nobody to aim at, whoever the line goes on to name.)
                     } else if let Some(target) = fourth {
@@ -1535,7 +1563,7 @@ impl Follower {
                         }
                     } else if queued
                         && !replaced
-                        && matches!(data.target, Target::Normal | Target::Any | Target::AdjacentFoe)
+                        && matches!(target, Target::Normal | Target::Any | Target::AdjacentFoe)
                         && let Some(&(_, _, loc)) = self.chosen.iter().find(|c| c.0 == self.own_at[pos])
                         && loc > 0
                     {
@@ -1553,7 +1581,7 @@ impl Follower {
                     };
                     // A move for one target that its user did not pick one for: one that answers
                     // whoever hit it, one that goes for anybody, one called by another move.
-                    let unaimed = match data.target {
+                    let unaimed = match target {
                         Target::Scripted | Target::RandomNormal => true,
                         Target::Normal | Target::Any | Target::AdjacentFoe => !queued || replaced,
                         _ => false,
@@ -1576,8 +1604,12 @@ impl Follower {
                     }
                     let pressed = aimed.iter().filter(|at| presses(at)).count() as u8;
                     let idx = self.own_at[pos];
+                    let copied = self.reader.sides[side].active[pos].as_ref().is_some_and(|l| l.transformed);
                     if let Some(own) = self.own.get_mut(idx) {
-                        let copied = !own.copied.is_empty();
+                        if copied && !own.copied.iter().any(|slot| slot.0 == paying) {
+                            let pp = MOVES[paying as usize].base_pp.min(5);
+                            own.copied.push((paying, pp, pp));
+                        }
                         let was_unknown = own.unknown_pp[copied as usize].contains(&paying);
                         if uncertain && !was_unknown {
                             own.unknown_pp[copied as usize].push(paying);
@@ -1759,6 +1791,13 @@ impl Follower {
             "-transform" => {
                 if let Some((s, p)) = third {
                     let theirs = self.spots[s][p].clone();
+                    if side == self.side && !self.own.is_empty() {
+                        // Every successful Transform creates new five-PP slots, even if
+                        // it left and reentered without an intervening private request.
+                        let own = &mut self.own[self.own_at[pos]];
+                        own.copied.clear();
+                        own.unknown_pp[1].clear();
+                    }
                     let species = self.reader.sides[s].active[p].as_ref().map(|l| l.species);
                     let spot = self.spot(side, pos);
                     spot.choice = None;
@@ -1789,6 +1828,7 @@ impl Follower {
             }
             "-start" => self.started_on(side, pos, arg(3), parts, of),
             "-end" => {
+                let at = self.begun.len();
                 let spot = self.spot(side, pos);
                 let effect = arg(3);
                 if parts.contains(&"[partiallytrapped]") {
@@ -1803,9 +1843,9 @@ impl Follower {
                     spot.remove(VolKind::Stockpile);
                 } else if let Some(kind) = VolKind::named(&effect_id(effect)) {
                     spot.remove(kind);
-                    // Encore changes the executed move only if it remains when
-                    // the queued action starts. Mental Herb can cure it first.
-                    if kind == VolKind::Encore && spot.begun == 0 {
+                    // An immediate herb cure prevents replacement. A later cure (e.g.
+                    // receiving a herb via Trick) cannot undo an already changed action.
+                    if kind == VolKind::Encore && spot.begun == 0 && spot.overridden == Some(at) {
                         spot.overridden = None;
                     }
                 } else if matches!(effect_id(effect).as_str(), "futuresight" | "doomdesire") {
@@ -1864,6 +1904,17 @@ impl Follower {
                     spot.reordered = Some(spot.reordered.map_or(begun, |t| t.min(begun)));
                 } else if matches!(name.as_str(), "quickclaw" | "quickdraw" | "custapberry") {
                     self.spot(side, pos).quick = true;
+                } else if name == "symbiosis" {
+                    // This transfer is announced only by -activate, not -item.
+                    // Keep the donor and recipient's private-item overrides current.
+                    self.spot(side, pos).item_since = Some(it::NONE);
+                    if let Some((s, p)) = of
+                        && let Some(item) = item_id(&to_id(arg(4)))
+                    {
+                        let consumed =
+                            self.reader.live_record(s, p).is_some_and(|rec| rec.item == ItemShown::Lost(item));
+                        self.spot(s, p).item_since = Some(if consumed { it::NONE } else { item });
+                    }
                 } else if matches!(name.as_str(), "skillswap" | "wanderingspirit" | "mummy" | "lingeringaroma") {
                     // Abilities change hands (and one of them says so again if it is Pressure):
                     // both Pokémon's for a swap, the attacker's for one that rubs off.
@@ -1900,6 +1951,11 @@ impl Follower {
                 }
             }
             "-enditem" => {
+                // The observer filters empty Fling, Cud Chew and duplicate [weaken]
+                // messages: none removes the item currently held after a transfer.
+                if self.reader.item_notes.is_empty() {
+                    return Ok(());
+                }
                 if effect_id(arg(3)) == "custapberry" {
                     self.spot(side, pos).quick = true;
                 }
@@ -1924,7 +1980,14 @@ impl Follower {
             }
             "-item" => {
                 // (A Choice item that comes, even in place of another, starts afresh.)
-                let item = item_id(&to_id(arg(3)));
+                let item = item_id(&to_id(arg(3))).map(|item| {
+                    // White Herb/terrain seeds can be consumed before the arrival line.
+                    if self.reader.live_record(side, pos).is_some_and(|rec| rec.item == ItemShown::Lost(item)) {
+                        it::NONE
+                    } else {
+                        item
+                    }
+                });
                 let spot = self.spot(side, pos);
                 spot.item_since = item.or(spot.item_since);
                 if !from.is_empty() && !from.contains("Frisk") {
@@ -1977,6 +2040,11 @@ impl Follower {
                 }
             }
             "-damage" if from == "confusion" => {
+                if self.spots[side][pos].instructed {
+                    // Showdown emits no move/cant for this failed repeat. Consume it
+                    // independently so the later chosen action remains in normal order.
+                    self.begin(side, pos, NO_MOVE, Some(false));
+                }
                 // It hurt itself in place of moving: a move it was charging is off.
                 self.spot(side, pos).vols.retain(|v| {
                     v.ends != Ends::Move
@@ -2061,6 +2129,8 @@ impl Follower {
                 }
                 let spot = self.spot(side, pos);
                 (spot.types, spot.added) = (Some(types), Type::None);
+                // This explicit change supersedes Reflect Type's pending settlement.
+                (spot.copied, spot.copied_foe) = (false, false);
             }
             "typeadd" => self.spot(side, pos).added = type_named(arg(4)),
             _ if effect.starts_with("perish") => {
@@ -2203,7 +2273,13 @@ impl Follower {
             }
             if let (Some(active), true) = (req.active.get(k), k < ACTIVE) {
                 for m in &active.moves {
-                    let Some((pp, max)) = m.pp else { continue };
+                    let Some((pp, max)) = m.pp else {
+                        if transformed && !own.copied.iter().any(|slot| slot.0 == m.id) {
+                            let pp = MOVES[m.id as usize].base_pp.min(5);
+                            own.copied.push((m.id, pp, pp));
+                        }
+                        continue;
+                    };
                     own.unknown_pp[transformed as usize].retain(|&id| id != m.id);
                     let known = if transformed { &mut own.copied } else { &mut own.pp };
                     match known.iter_mut().find(|s| s.0 == m.id) {
@@ -2357,10 +2433,10 @@ impl Follower {
                 None => {
                     for &id in mon.moves.iter().take(MAX_MOVES) {
                         let known = if m.transformed { &own.copied } else { &own.pp };
-                        let (pp, maxpp) = known
-                            .iter()
-                            .find(|s| s.0 == id)
-                            .map_or((MOVES[id as usize].pp, MOVES[id as usize].pp), |s| (s.1, s.2));
+                        let initial_pp =
+                            if m.transformed { MOVES[id as usize].base_pp.min(5) } else { MOVES[id as usize].pp };
+                        let (pp, maxpp) =
+                            known.iter().find(|s| s.0 == id).map_or((initial_pp, initial_pp), |s| (s.1, s.2));
                         m.moves[m.n_moves as usize] =
                             MoveSlot { id, pp, maxpp, disabled: false, hidden: false, used: false };
                         m.n_moves += 1;
@@ -2603,7 +2679,8 @@ impl Follower {
             let now = then.own.iter().find(|o| o.0 == s.stay).and_then(|o| o.1.as_ref());
             let speed =
                 now.and_then(|n| n.agreed(|a| speed::own_speed(&n.seen, a, n.item, n.lost_item, n.stat, &then.field)));
-            let priority = now.and_then(|n| n.agreed(|a| speed::own_priority(&n.seen, a, &then.field, q.move_id)));
+            let priority =
+                now.and_then(|n| n.agreed(|a| speed::own_priority(&n.seen, a, &then.field, q.move_id, n.grounded)));
             match (speed, priority, self.own_frac(s, q.move_id)) {
                 (Some(speed), Some(priority), Some(frac)) => {
                     (q.speed, q.priority, q.frac) = (speed, priority + frac as i32, frac)

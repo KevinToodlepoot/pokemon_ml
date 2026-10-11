@@ -23,6 +23,8 @@ fn main() {
     let mut path = None;
     let mut max_failures = 3usize;
     let mut quiet = false;
+    let mut report = None;
+    let mut records = Vec::new();
     let mut mode = Rebuild::No;
     let mut shown = false;
     let mut closed = false;
@@ -34,6 +36,7 @@ fn main() {
                 max_failures = args.next().and_then(|n| n.parse().ok()).expect("--max-failures takes a number")
             }
             "--quiet" => quiet = true,
+            "--report" => report = Some(args.next().expect("--report takes a JSON path")),
             "--rebuild" => mode = Rebuild::Exact,
             "--by-hand" => mode = Rebuild::ByHand,
             "--shown" => shown = true,
@@ -53,6 +56,14 @@ fn main() {
         let case: Case = serde_json::from_str(&line).expect("malformed case");
         let outcome =
             if shown { check_shown_as(&case, mode, closed, &mut tally) } else { check_case_with(&case, mode) };
+        if report.is_some() {
+            let (status, n, errors) = match &outcome {
+                Outcome::Pass(n) => ("matched", *n, Vec::new()),
+                Outcome::Unsupported(why) => ("unsupported", 0, vec![why.clone()]),
+                Outcome::Fail(why) => ("diverged", 0, why.clone()),
+            };
+            records.push(serde_json::json!({"id": case.id, "status": status, "decisions": n, "errors": errors}));
+        }
         match outcome {
             Outcome::Pass(n) => {
                 passed += 1;
@@ -74,6 +85,13 @@ fn main() {
                 }
             }
         }
+    }
+    if let Some(path) = report {
+        let output = serde_json::json!({"schema_version": 1, "cases": records,
+            "summary": {"matched": passed, "decisions": decisions, "diverged": failed.len(),
+                "unsupported": unsupported}});
+        std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
+            .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));
     }
     if shown {
         let total = |m: &std::collections::BTreeMap<String, (usize, String)>| m.values().map(|v| v.0).sum::<usize>();

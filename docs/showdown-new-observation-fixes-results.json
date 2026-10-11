@@ -1,0 +1,46 @@
+{
+  "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+  "format": "gen9championsvgc2026regmc",
+  "archived_battles": 100000,
+  "observations": {
+    "batches": 100,
+    "elapsed_seconds": 1016,
+    "actionable_differences": 0,
+    "decisions": 2401242,
+    "differences": 0,
+    "failed": 0,
+    "followed": 100000,
+    "observations": 4970666,
+    "passed_over": 31818,
+    "unsupported": 0
+  },
+  "mechanics": {
+    "decisions": 2401242,
+    "diverged": 0,
+    "matched": 100000,
+    "unsupported": 0
+  },
+  "validation_method": "Final frozen follower replay of both archived 50,000-battle corpora. Full-state by-hand replay uses identical mechanics sources; only src/follow.rs changed between those two runs.",
+  "final_follower_sha256": "e9f4958e64d4960cbeb188ccd78834bf5098cb57148181a1468aae41cec0359f",
+  "source_unchanged_during_final_replay": true,
+  "retained_regressions": {
+    "battles": 77,
+    "observations": 4671,
+    "differences": 0,
+    "fresh_original_battles": 12,
+    "competitive_illusion_battles": 1,
+    "previous_regression_battles": 43,
+    "transfer_regression_battles": 21
+  },
+  "checks": {
+    "rust_tests_passed": 106,
+    "expanded_follow_tests_passed": 10,
+    "python_tests_passed": 10,
+    "python_tests_skipped": 1,
+    "python_skip_reason": "SHOWDOWN_SERVER is not configured",
+    "all_profiles_smoke_battles": 100,
+    "default_build_smoke_battles": 20,
+    "known_failure_capture_original_id": 235,
+    "known_failure_capture_generator_seed": 97011009
+  }
+}

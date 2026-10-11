@@ -1,6 +1,6 @@
 //! Checks the log follower against recorded Showdown battles.
 //!
-//!     followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl]
+//!     followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json]
 //!
 //! The battles must have been recorded with their logs and requests
 //! (`oracle/gen_cases.js --log --requests`). Each is played in the
@@ -17,11 +17,15 @@ fn main() {
     let mut limit = usize::MAX;
     let mut only = None;
     let mut slim = None;
+    let mut report = None;
+    let mut records = Vec::new();
     let mut list = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--limit" {
             limit = args.next().and_then(|n| n.parse().ok()).expect("--limit takes a number");
+        } else if arg == "--report" {
+            report = Some(args.next().expect("--report takes a JSON path"));
         } else if arg == "--slim" {
             // Write the battles followed back out with only what this check reads.
             let path = args.next().expect("--slim takes a file to write");
@@ -37,7 +41,9 @@ fn main() {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl]");
+        eprintln!(
+            "usage: followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json]"
+        );
         std::process::exit(2);
     }
     let mut tally = FollowTally { verbose: only.is_some(), ..FollowTally::default() };
@@ -54,7 +60,32 @@ fn main() {
             if only.is_some_and(|id| id != case.id) {
                 continue;
             }
-            match check_follow(&case, &mut tally) {
+            let before = (
+                tally.observations,
+                tally.wrong,
+                tally.choices,
+                tally.wrong_choices,
+                tally.hidden_disables,
+                tally.first_wrong.len(),
+            );
+            let outcome = check_follow(&case, &mut tally);
+            if report.is_some() {
+                let (status, decisions, errors) = match &outcome {
+                    Outcome::Pass(n) => ("followed", *n, Vec::new()),
+                    Outcome::Unsupported(why) => ("unsupported", 0, vec![why.clone()]),
+                    Outcome::Fail(why) => ("failed", 0, why.clone()),
+                };
+                records.push(serde_json::json!({
+                    "id": case.id, "status": status, "decisions": decisions, "errors": errors,
+                    "observations": tally.observations - before.0,
+                    "differences": tally.wrong - before.1,
+                    "actionable_observations": tally.choices - before.2,
+                    "actionable_differences": tally.wrong_choices - before.3,
+                    "passed_over": tally.hidden_disables - before.4,
+                    "first_differences": &tally.first_wrong[before.5..],
+                }));
+            }
+            match outcome {
                 Outcome::Pass(n) => {
                     battles += 1;
                     decisions += n;
@@ -105,7 +136,18 @@ fn main() {
             println!("first: {first}");
         }
     }
-    if !failed.is_empty() {
+    if let Some(path) = report {
+        let output = serde_json::json!({
+            "schema_version": 1, "cases": records,
+            "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
+                "failed": failed.len(), "observations": tally.observations,
+                "differences": tally.wrong, "actionable_differences": tally.wrong_choices,
+                "passed_over": tally.hidden_disables},
+        });
+        std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
+            .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));
+    }
+    if !failed.is_empty() || tally.wrong > 0 {
         std::process::exit(1);
     }
 }
