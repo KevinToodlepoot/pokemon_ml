@@ -90,6 +90,97 @@ fn follower_for(case: &FollowCase, side: usize) -> Follower {
     Follower::new(side, team).unwrap().with_names(names)
 }
 
+fn hidden_move_cases() -> Vec<FollowCase> {
+    include_str!("fixtures/hidden_move_information.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// All 41 failures retained from the fresh 50,000-battle sweep and two
+/// regressions found while replaying the fixes. These include
+/// interrupted Round chains, Encore retargeting, item theft, and Mimicry resets.
+#[test]
+fn saved_sweep_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/sweep_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 43);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+    }
+    assert_eq!(tally.observations, 2617);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
+fn cured_encore_and_allied_skill_swap_preserve_speed_evidence() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/speed_knowledge.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        let (steps, feature, expected) = match case.id {
+            871 => (11, 474, 114.0 / 200.0),
+            115 => (14, 423, 89.0 / 200.0),
+            _ => panic!("unexpected regression case"),
+        };
+        let mut me = follower_for(case, 1);
+        me.lines(&Follower::own_lines(1, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[1].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(1, &step.after.log)).unwrap();
+            me.request(&step.after.requests[1].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        assert_eq!(f[feature], expected, "case {} retains the observed Speed bound", case.id);
+    }
+    assert_eq!(cases.len(), 2);
+    assert_eq!(tally.observations, 124);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
+fn hidden_choice_refusals_and_pressure_targets_have_matching_observations() {
+    let mut tally = FollowTally::default();
+    for case in hidden_move_cases() {
+        assert!(matches!(check_follow(&case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+    }
+    assert!(tally.observations >= 300);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
+fn a_wait_request_keeps_pressure_pp_unknown_until_an_exact_request() {
+    let case = hidden_move_cases().into_iter().find(|c| c.id == 586).unwrap();
+    let mut me = follower_for(&case, 1);
+    me.lines(&Follower::own_lines(1, &case.initial.log)).unwrap();
+    me.request(&case.initial.requests[1].to_string()).unwrap();
+    for step in &case.steps[..3] {
+        me.lines(&Follower::own_lines(1, &step.after.log)).unwrap();
+        me.request(&step.after.requests[1].to_string()).unwrap();
+    }
+    assert_eq!(case.steps[2].after.requests[1]["wait"], true);
+    let b = me.battle().unwrap();
+    assert_eq!(b.mon(b.active(1, 0)).unknown_pp, 1, "Comeuppance's count is uncertain");
+    let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+    me.observe(&mut f, &mut i, &mut mask).unwrap();
+    assert_eq!(f[366], -1.0, "do not expose an inferred PP count as exact");
+    let step = &case.steps[3];
+    me.lines(&Follower::own_lines(1, &step.after.log)).unwrap();
+    me.request(&step.after.requests[1].to_string()).unwrap();
+    let b = me.battle().unwrap();
+    let mon = b.mon(b.active(1, 0));
+    assert_eq!((mon.unknown_pp, mon.moves[0].pp, mon.moves[0].maxpp), (0, 8, 12));
+    me.observe(&mut f, &mut i, &mut mask).unwrap();
+    assert_eq!(f[366], 8.0 / 12.0);
+}
+
 /// The last of a side to choose is told only that it *may* be trapped, when
 /// a foe could be holding it in by an ability not yet shown. It may try to
 /// switch; if it cannot, Showdown sends the request again saying so.

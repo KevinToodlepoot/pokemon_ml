@@ -43,6 +43,8 @@ pub(crate) struct Handler {
     /// `abilityState.effectOrder` of a Pokémon holder, used by `compareRedirectOrder`.
     pub ability_order: u32,
     pub uid: u16,
+    /// Detached field timers still expire before Showdown checks handler identity.
+    pub field_duration: u8,
     /// Position of the handler's target in a multi-target event.
     pub index: u8,
 }
@@ -61,6 +63,7 @@ const BLANK: Handler = Handler {
     effect_order: 0,
     ability_order: 0,
     uid: 0,
+    field_duration: 0,
     index: 0,
 };
 
@@ -254,6 +257,11 @@ impl Battle {
             effect_order,
             ability_order,
             uid: st.uid,
+            field_duration: match eff {
+                Eff::Terrain(_) => self.field.terrain.duration,
+                Eff::Weather(_) => self.field.weather.duration,
+                _ => 0,
+            },
             index: 0,
         }
     }
@@ -872,14 +880,16 @@ impl Battle {
             }
             (Eff::Weather(kind), Holder::Field) => {
                 let w = &mut self.field.weather;
-                if w.kind == kind && tick(Some(w), uid) {
+                let detached_expiry = (w.kind != kind || w.st.uid != uid) && h.field_duration == 1;
+                if detached_expiry || (w.kind == kind && tick(Some(w), uid)) {
                     self.clear_weather();
                     return true;
                 }
             }
             (Eff::Terrain(kind), Holder::Field) => {
                 let t = &mut self.field.terrain;
-                if t.kind == kind && tick(Some(t), uid) {
+                let detached_expiry = (t.kind != kind || t.st.uid != uid) && h.field_duration == 1;
+                if detached_expiry || (t.kind == kind && tick(Some(t), uid)) {
                     self.clear_terrain();
                     return true;
                 }

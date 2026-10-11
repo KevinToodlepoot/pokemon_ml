@@ -854,6 +854,7 @@ impl Battle {
             orig_target: None,
             self_target: false,
             source: ActSource::None,
+            target_replaced: false,
         }
     }
 
@@ -1010,7 +1011,10 @@ impl Battle {
         self.queue.cancel(r);
         let s = self.action_speed(r);
         self.mon_mut(r).speed = s;
-        let (actions, n) = self.resolve_move_actions(r, move_id, 0, false);
+        let (mut actions, n) = self.resolve_move_actions(r, move_id, 0, false);
+        for action in &mut actions[..n] {
+            action.target_replaced = true;
+        }
         // Showdown places the whole group where its first action sorts.
         let at = self.insert_choice(actions[0]);
         for (k, a) in actions[1..n].iter().enumerate() {
@@ -1078,6 +1082,8 @@ impl Battle {
         if m.transformed {
             // Its own moves come back, with the PP they had.
             m.moves = m.base_moves;
+            m.unknown_pp = m.base_unknown_pp;
+            m.base_unknown_pp = 0;
             m.n_moves = m.base_n_moves;
             m.transformed = false;
         }
@@ -1106,6 +1112,7 @@ impl Battle {
         m.was_attacked = false;
         m.last_attack_damage = 0;
         m.last_move = NO_MOVE;
+        m.last_attempted_move = None;
         m.locked_move = NO_MOVE;
         m.newly_switched = true;
         m.hurt_this_turn = 0;
@@ -1216,6 +1223,8 @@ impl Battle {
             m.said.copied = true;
             m.stats[1..].copy_from_slice(&t.stats[1..]);
             m.base_moves = m.moves;
+            m.base_unknown_pp = m.unknown_pp;
+            m.unknown_pp = 0;
             m.base_n_moves = m.n_moves;
             m.n_moves = t.n_moves;
             for k in 0..t.n_moves as usize {
@@ -1376,6 +1385,7 @@ impl Battle {
         self.run_event(Ev::BeforeSwitchIn, Some(incoming), None, Eff::None, Res::Undef);
         // The `switch` line.
         self.shown_enter(incoming);
+        self.note_speed_switch(incoming);
         // `queue.insertChoice({choice: 'runSwitch', pokemon})`: the speed is
         // computed once to cache it and once more for the action.
         if is_drag {
@@ -3084,10 +3094,16 @@ impl Battle {
             }
             for pos in 0..ACTIVE {
                 let r = self.active(side, pos);
+                let locked = self.get_locked_move(r);
+                // Showdown sends full move slots even for a fainted active Pokémon,
+                // but a hard lock or Struggle lists no PP. Switch/wait requests never
+                // reach this move-request preparation.
+                if locked.is_none() && self.usable_moves(r) {
+                    self.mon_mut(r).unknown_pp = 0;
+                }
                 if !self.in_play(r) {
                     continue;
                 }
-                let locked = self.get_locked_move(r);
                 self.mon_mut(r).locked_move = locked.unwrap_or(NO_MOVE);
                 if locked.is_some() {
                     self.mon_mut(r).trapped = Trapped::Yes;

@@ -37,6 +37,13 @@
 //! these are facts. For the other side's they are what the order of moves has
 //! left possible ([`crate::speed`]).
 //!
+//! # Move information
+//!
+//! Active move ids are the last visibly attempted queued moves, including
+//! Choice-item refusals. Own PP is normalized to [0, 1], or -1 when a failed
+//! move's hidden random target leaves its Pressure cost uncertain. An exact
+//! move request restores the count; wait and switch requests do not.
+//!
 //! # Timers
 //!
 //! How long a weather, a terrain or a screen has left is not public: an item
@@ -60,7 +67,7 @@ pub const MONS: usize = 2 * ROSTER;
 pub const MON_IDS: usize = 8;
 /// Positions on the field: the viewer's two, then the opponent's two.
 pub const ACTIVES: usize = 2 * ACTIVE;
-/// Ids per position: the Pokémon token standing there plus one (0: nobody), and the move it last used.
+/// Ids per position: the Pokémon token standing there plus one (0: nobody), and its last visibly attempted move.
 pub const ACT_IDS: usize = 2;
 /// Moves the viewer's two active Pokémon can pick from, four each.
 pub const MOVE_TOKENS: usize = ACTIVE * MAX_MOVES;
@@ -617,7 +624,7 @@ pub fn observe_battle(
         tok.moves = [ID_NONE; MAX_MOVES];
         for (k, slot) in m.moves[..m.n_moves as usize].iter().enumerate() {
             tok.moves[k] = id(slot.id);
-            tok.pp[k] = slot.pp as f32 / slot.maxpp.max(1) as f32;
+            tok.pp[k] = if m.unknown_pp & (1 << k) != 0 { -1.0 } else { slot.pp as f32 / slot.maxpp.max(1) as f32 };
         }
         tok.can_mega = m.can_mega != NO_SPECIES;
         tok.transformed = m.transformed;
@@ -740,7 +747,8 @@ pub fn observe_battle(
             continue;
         }
         p.act_ids[slot * ACT_IDS] = token.map_or(0, |t| t as i16 + 1);
-        p.act_ids[slot * ACT_IDS + 1] = if m.last_move == NO_MOVE { ID_NONE } else { id(m.last_move) };
+        let attempted = m.last_attempted_move.unwrap_or(m.last_move);
+        p.act_ids[slot * ACT_IDS + 1] = if attempted == NO_MOVE { ID_NONE } else { id(attempted) };
         let mut w = W { buf: &mut p.act_feats[slot * ACT_F..(slot + 1) * ACT_F], at: 0 };
         w.flag(true);
         // HP and status here too: its own exactly, the other side's as the bar shows it.
