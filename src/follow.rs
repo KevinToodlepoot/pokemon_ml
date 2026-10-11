@@ -872,8 +872,8 @@ impl Follower {
             return MAX_TEAM - 1;
         };
         let copy = match s.active[1 - pos].as_ref() {
-            Some(other) if other.entry == here.entry && !here.gone => {
-                // The one that has fainted was the Pokémon itself. Of two still standing, the
+            Some(other) if other.entry == here.entry => {
+                // A residual faint need not reveal Illusion. Of two sharing a name, the
                 // copy is the one the record has its doubts about, if it doubts just one.
                 // Otherwise it goes by who came first. Illusion copies the last healthy
                 // Pokémon to its user's right, which as a rule is one in reserve: so the
@@ -883,9 +883,7 @@ impl Follower {
                 let (mine, beside) = (&self.spots[opp][pos], &self.spots[opp][1 - pos]);
                 let later = mine.stay > beside.stay;
                 // (A Pokémon in disguise cannot Transform: one that has is the Pokémon itself.)
-                if other.gone {
-                    true
-                } else if here.transformed != other.transformed {
+                if here.transformed != other.transformed {
                     other.transformed
                 } else if here.rec.suspect != other.rec.suspect {
                     here.rec.suspect
@@ -989,6 +987,11 @@ impl Follower {
         } else {
             None
         };
+        // Poison and burn tick after weather's residual event. A weather ability
+        // inherited on the ensuing faint starts too late to age at this upkeep.
+        if kind == "-damage" && matches!(from, "brn" | "psn" | "tox") {
+            self.ending = true;
+        }
         let before = held(self);
         // The other side's Pokémon as they are numbered now, each with its stay on the field.
         let opp = 1 - self.side;
@@ -2015,6 +2018,7 @@ impl Follower {
                     }
                 } else if name == "feint" || parts.contains(&"[broken]") {
                     // Its protection is broken, and with it the run of protecting moves.
+                    self.field.sides[side].conds.retain(|c| !matches!(c.0, SideCond::Quickguard | SideCond::Wideguard));
                     self.spot(side, pos).vols.retain(|v| {
                         !matches!(
                             v.kind,

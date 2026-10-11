@@ -1,0 +1,535 @@
+{
+  "uploaded_before": {
+    "actionable_differences": 18,
+    "decisions": 180,
+    "differences": 20,
+    "failed": 0,
+    "followed": 4,
+    "observations": 368,
+    "passed_over": 0,
+    "unsupported": 0
+  },
+  "uploaded_after": {
+    "actionable_differences": 0,
+    "decisions": 180,
+    "differences": 0,
+    "failed": 0,
+    "followed": 4,
+    "observations": 368,
+    "passed_over": 0,
+    "unsupported": 0
+  },
+  "uploaded_mechanics_after": {
+    "decisions": 180,
+    "diverged": 0,
+    "matched": 4,
+    "unsupported": 0
+  },
+  "targeted_summary": {
+    "completed_batches": 20,
+    "compared_battles": 1000,
+    "failing_battles": 0,
+    "elapsed_seconds": 92,
+    "observations_actionable_differences": 0,
+    "observations_decisions": 28716,
+    "observations_differences": 0,
+    "observations_failed": 0,
+    "observations_followed": 1000,
+    "observations_observations": 58991,
+    "observations_passed_over": 441,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 28716,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 1000,
+    "mechanics_unsupported": 0
+  },
+  "targeted_manifest": [
+    {
+      "label": "0001-illusion-form",
+      "seed": 1648207359,
+      "n": 50,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0002-illusion-items",
+      "seed": 1649207362,
+      "n": 50,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers"
+      ]
+    },
+    {
+      "label": "0003-residual-weather",
+      "seed": 1650207365,
+      "n": 50,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0004-broken-guards",
+      "seed": 1651207368,
+      "n": 50,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers"
+      ]
+    },
+    {
+      "label": "0005-types",
+      "seed": 1652207371,
+      "n": 50,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0006-pressure",
+      "seed": 1653207374,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst"
+      ]
+    },
+    {
+      "label": "0007-choice-swap",
+      "seed": 1654207377,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct"
+      ]
+    },
+    {
+      "label": "0008-mental-herb",
+      "seed": 1655207380,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0009-trapping",
+      "seed": 1656207383,
+      "n": 50,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers"
+      ]
+    },
+    {
+      "label": "0010-called-moves",
+      "seed": 1657207386,
+      "n": 50,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster"
+      ]
+    },
+    {
+      "label": "0011-illusion-form",
+      "seed": 1658207389,
+      "n": 50,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0012-illusion-items",
+      "seed": 1659207392,
+      "n": 50,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0013-residual-weather",
+      "seed": 1660207395,
+      "n": 50,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0014-broken-guards",
+      "seed": 1661207398,
+      "n": 50,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0015-types",
+      "seed": 1662207401,
+      "n": 50,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0016-pressure",
+      "seed": 1663207404,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0017-choice-swap",
+      "seed": 1664207407,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0018-mental-herb",
+      "seed": 1665207410,
+      "n": 50,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0019-trapping",
+      "seed": 1666207413,
+      "n": 50,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0020-called-moves",
+      "seed": 1667207416,
+      "n": 50,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster",
+        "--open-sheets"
+      ]
+    }
+  ],
+  "targeted_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-11T23:50:46Z",
+    "engine_commit": "29a6b59fa20dc8367d80b1fb4a80f90c99ec577c",
+    "working_tree": "M docs/running-showdown-comparisons.md\n M scripts/compare-showdown.py\n M src/follow.rs\n M src/speed.rs\n M tests/follow.rs\n?? scripts/run-showdown-200000.py\n?? tests/fixtures/illusion_residual_guard_regressions.jsonl",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.19.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "f4a44dbcbef0a71d67464e12de5c981d33a19e60063bc51ae5ca4e47c6b3cbb5",
+      "difftest": "7058b445b84e3173b0d4dc5c7467333cd6b6d3294c2a03bf4a51c206cc734d0f"
+    },
+    "build_requested": true,
+    "command": [
+      "scripts/compare-showdown.py",
+      "--battles",
+      "1000",
+      "--batch-size",
+      "50",
+      "--profile",
+      "regressions",
+      "--seed",
+      "1648207359",
+      "--workers",
+      "4",
+      "--keep-passing",
+      "--out",
+      "/workspace/showdown-validation/illusion-residual-guards-1648207359"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-11T23:52:18Z",
+    "generator_unchanged": true
+  },
+  "source_sha256": {
+    "src/follow.rs": "0396829ea50902b4a0da55f26e33fc3b2462f54e4d2594f03f80c1a46ffcdf7f",
+    "src/speed.rs": "c20a15e4a77e4bc54273583fde7734204865839add44a92faeb207cd4a9bc06e",
+    "scripts/compare-showdown.py": "0e0b70b70a55c459e253cadb113a73a7dc849041a2c1577d9ded428d593290ac",
+    "scripts/run-showdown-200000.py": "2b3c95fec15a1db01867424c84d60f87523c954760639a6329d07884f7481261"
+  },
+  "move_event_coverage": {
+    "0001-illusion-form": {
+      "Toxic": 103,
+      "King's Shield": 78,
+      "U-turn": 245,
+      "Bounce": 328,
+      "Iron Head": 282,
+      "Will-O-Wisp": 149
+    },
+    "0002-illusion-items": {
+      "Scary Face": 409,
+      "Trick": 203,
+      "Protect": 424,
+      "U-turn": 317,
+      "Switcheroo": 56
+    },
+    "0003-residual-weather": {
+      "Protect": 545,
+      "Rain Dance": 407,
+      "Will-O-Wisp": 78,
+      "Sunny Day": 349,
+      "Toxic": 82
+    },
+    "0004-broken-guards": {
+      "U-turn": 237,
+      "Feint": 183,
+      "Wide Guard": 67,
+      "Protect": 418,
+      "Quick Guard": 80
+    },
+    "0005-types": {
+      "Double Shock": 16,
+      "Soak": 153,
+      "Burn Up": 126,
+      "Roost": 229,
+      "Trick-or-Treat": 42,
+      "Reflect Type": 71,
+      "Forest's Curse": 3
+    },
+    "0006-pressure": {
+      "Curse": 173,
+      "Encore": 163,
+      "Expanding Force": 139,
+      "Metal Burst": 16,
+      "Comeuppance": 1
+    },
+    "0007-choice-swap": {
+      "Switcheroo": 111,
+      "Encore": 440,
+      "Skill Swap": 326,
+      "Magic Room": 70,
+      "Trick": 375
+    },
+    "0008-mental-herb": {
+      "Imprison": 65,
+      "Torment": 47,
+      "Taunt": 351,
+      "Encore": 178,
+      "Disable": 81,
+      "Throat Chop": 274
+    },
+    "0009-trapping": {
+      "Round": 589,
+      "U-turn": 135,
+      "Quash": 13,
+      "After You": 39,
+      "Volt Switch": 47,
+      "Bind": 9,
+      "Wrap": 9
+    },
+    "0010-called-moves": {
+      "Encore": 151,
+      "Uproar": 217,
+      "Sleep Talk": 262,
+      "Transform": 3,
+      "Copycat": 29,
+      "Instruct": 2
+    },
+    "0011-illusion-form": {
+      "Toxic": 90,
+      "U-turn": 243,
+      "Bounce": 316,
+      "Will-O-Wisp": 124,
+      "Iron Head": 263,
+      "King's Shield": 48
+    },
+    "0012-illusion-items": {
+      "Scary Face": 451,
+      "Protect": 430,
+      "Trick": 256,
+      "U-turn": 257,
+      "Switcheroo": 26
+    },
+    "0013-residual-weather": {
+      "Rain Dance": 592,
+      "Sunny Day": 443,
+      "Protect": 654,
+      "Will-O-Wisp": 111,
+      "Toxic": 112
+    },
+    "0014-broken-guards": {
+      "Quick Guard": 110,
+      "Feint": 252,
+      "U-turn": 282,
+      "Protect": 446,
+      "Wide Guard": 80
+    },
+    "0015-types": {
+      "Soak": 154,
+      "Roost": 174,
+      "Trick-or-Treat": 50,
+      "Burn Up": 110,
+      "Forest's Curse": 40,
+      "Reflect Type": 62,
+      "Double Shock": 12
+    },
+    "0016-pressure": {
+      "Curse": 213,
+      "Encore": 265,
+      "Expanding Force": 116,
+      "Metal Burst": 39,
+      "Comeuppance": 5
+    },
+    "0017-choice-swap": {
+      "Switcheroo": 115,
+      "Trick": 379,
+      "Encore": 470,
+      "Skill Swap": 322,
+      "Magic Room": 67
+    },
+    "0018-mental-herb": {
+      "Encore": 198,
+      "Taunt": 316,
+      "Throat Chop": 240,
+      "Disable": 87,
+      "Imprison": 64,
+      "Torment": 58
+    },
+    "0019-trapping": {
+      "U-turn": 142,
+      "Round": 518,
+      "Wrap": 25,
+      "After You": 58,
+      "Quash": 26,
+      "Volt Switch": 39,
+      "Bind": 3
+    },
+    "0020-called-moves": {
+      "Encore": 193,
+      "Sleep Talk": 416,
+      "Uproar": 262,
+      "Copycat": 49
+    }
+  },
+  "integration_tests": {
+    "follow": 13,
+    "shown": 12,
+    "speed": 5,
+    "failures": 0
+  },
+  "large_sweep_run": false
+}
