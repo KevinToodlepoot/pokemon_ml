@@ -950,6 +950,15 @@ impl Speeds {
     fn settle(&mut self, b: &Battle) {
         for side in 0..2 {
             let s = &b.sides[side];
+            // A live alias supersedes its filed record. In particular, a trade
+            // made under Illusion must not be narrowed again by the copied
+            // Pokémon's old item on the bench: the log cannot identify the trader.
+            let live_listed = s
+                .team
+                .iter()
+                .filter(|m| m.is_active && m.live.seen != 0)
+                .filter(|m| (m.live.listed as usize) < MAX_ROSTER)
+                .fold(0u8, |mask, m| mask | (1 << m.live.listed));
             // (Every place on the team, brought or not: a follower of Showdown's log keeps a
             // Pokémon it knows to be in disguise in one past the last it has seen.)
             for a in 0..MAX_TEAM {
@@ -975,6 +984,9 @@ impl Speeds {
                 // The record of the Pokémon this one appears to be.
                 let rec = if m.is_active && m.live.seen != 0 { &m.live } else { &s.shown[a] };
                 if rec.seen == 0 || rec.suspect || rec.tainted || rec.listed as usize >= s.n_roster as usize {
+                    continue;
+                }
+                if !(m.is_active && m.live.seen != 0) && live_listed & (1 << rec.listed) != 0 {
                     continue;
                 }
                 // The record of an Illusion Pokémon's own item goes stale when it trades items in

@@ -23,6 +23,60 @@ fn cases() -> Vec<FollowCase> {
 }
 
 #[test]
+fn illusion_residual_and_guard_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/illusion_residual_guard_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 4);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        let (steps, side) = match case.id {
+            242 => (30, 1),
+            735 => (33, 0),
+            632 => (8, 0),
+            178 => (2, 0),
+            _ => panic!("unexpected regression case"),
+        };
+        let mut me = follower_for(case, side);
+        // Stress rosters may break Item Clause; match the replay's assumptions.
+        let opp = &case.rosters[1 - side];
+        me.trust_item_clause(
+            opp.iter()
+                .enumerate()
+                .all(|(j, a)| a.item.as_deref().is_none_or(str::is_empty) || opp[..j].iter().all(|b| b.item != a.item)),
+        );
+        me.lines(&Follower::own_lines(side, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[side].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(side, &step.after.log)).unwrap();
+            me.request(&step.after.requests[side].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        match case.id {
+            242 => {
+                assert_eq!(
+                    i[56],
+                    vgc_engine::data::species_id("aegislashblade").unwrap() as i16 + vgc_engine::obs::ID_BASE
+                );
+                assert_eq!(f[938], 0.0, "the disguised ally's faint leaves this position empty");
+            }
+            735 => {
+                assert_eq!(f[630], 36.0 / 200.0, "ambiguous item loss cannot exclude the real Aegislash's speed items");
+                assert_eq!(f[631], 184.0 / 200.0);
+            }
+            632 => assert_eq!(f[10], 0.0, "rain inherited after Toxic has not aged"),
+            178 => assert_eq!(f[37], 0.0, "Feint clears Quick Guard before the forced replacement"),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(tally.observations, 368);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn locally_saved_sweep_failures_have_matching_observations() {
     let cases: Vec<FollowCase> = include_str!("fixtures/local_sweep_regressions.jsonl")
         .lines()

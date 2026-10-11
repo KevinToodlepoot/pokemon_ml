@@ -8,8 +8,8 @@ Use Git, current stable Rust/Cargo, Node.js **22 or newer**, npm, and Python **3
 
 ```bash
 git fetch origin
-git checkout fix/showdown-observation-parity
-git pull --ff-only
+git switch main
+git pull --ff-only origin main
 bash scripts/setup-oracle.sh
 ```
 
@@ -79,3 +79,45 @@ With the default 1,000-battle batches, the mixed profile runs 30,000 general and
 This is a mechanics stress corpus: some teams have injected abilities or duplicate species. The runner excludes multiple initially brought Illusion users per side and impossible closed-sheet rosters with non-native Illusion, matching the earlier validation scope. It replaces excluded and truncated candidates until it has the requested number of complete recordings. Comparison reports retain the existing hidden-information pass-over count; they do not claim those observations were checked.
 
 Passing recordings are removed after comparison by default, keeping disk use bounded by active batches. `--keep-passing` retains every full recording and can consume substantial disk space. Lower `--workers` or `--batch-size` if memory or temporary disk space is tight. Failure recordings and reports are always retained.
+
+## Fresh 200,000-battle runs after merging fixes
+
+Update to merged main, then run the convenience script:
+
+```bash
+git fetch origin
+git switch main
+git pull --ff-only origin main
+python3 scripts/run-showdown-200000.py
+```
+
+The script selects and prints a random 32-bit base seed, builds the current code,
+then runs 200,000 comparisons using the existing mixed profile. Results go to
+`~/showdown-runs/showdown-SEED`, outside the checkout. Save the printed seed;
+random selection makes accidental reuse unlikely, but does not guarantee that
+no seed or individual battle has ever been generated before. To choose a seed
+explicitly or save the run on the Desktop:
+
+```bash
+python3 scripts/run-showdown-200000.py --seed 1764029381 --out ~/Desktop/showdown-1764029381
+```
+
+Upload that directory's `differences.tar.gz` after completion. The script
+preserves the comparison runner's exit codes (0 clean, 1 findings, 2 incomplete).
+It never updates Git automatically or overwrites an existing run.
+
+## Targeted observation regressions
+
+To run 1,000 new battles around the retained Illusion, residual-weather,
+Feint/guard, type, Pressure, item/ability-swap, Mental Herb, trapping and called-move
+issues, covering each theme with both closed and open sheets:
+
+```bash
+python3 scripts/compare-showdown.py --battles 1000 --batch-size 50 \
+  --profile regressions --seed 1648207359 --workers 4 \
+  --keep-passing --out runs/observation-regressions-1648207359
+```
+
+These are deliberately unusual stress teams, not a competitive training pool.
+The exact uploaded failures are also retained in the follower integration tests;
+the fresh random cases supplement those deterministic regressions.

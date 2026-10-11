@@ -29,6 +29,17 @@ THEMES = [
 ]
 
 
+# New uploaded failures plus earlier observation regressions. With 50-battle
+# batches, 1,000 battles exercises each theme in both sheet modes.
+REGRESSION_THEMES = [
+    ('illusion-form', ['--species', 'zoroark,zoroarkhisui,aegislash', '--moves', 'uturn,kingsshield,willowisp,toxic,bounce,ironhead', '--moves-per', '3']),
+    ('illusion-items', ['--species', 'zoroark,zoroarkhisui,aegislash', '--moves', 'trick,switcheroo,uturn,protect,scaryface', '--moves-per', '3', '--items', 'choicescarf,ironball,focusband,leftovers']),
+    ('residual-weather', ['--species', 'politoed,pelipper,passimian', '--abilities', 'receiver,drizzle,drought,innerfocus', '--moves', 'toxic,willowisp,protect,raindance,sunnyday', '--moves-per', '3']),
+    ('broken-guards', ['--species', 'sirfetchd,golisopod,arcanine', '--abilities', 'emergencyexit,innerfocus', '--moves', 'feint,quickguard,wideguard,protect,uturn', '--moves-per', '3', '--items', 'ejectbutton,redcard,leftovers']),
+    *[theme for theme in THEMES if theme[0] in {'types', 'pressure', 'choice-swap', 'mental-herb', 'trapping', 'called-moves'}],
+]
+
+
 def write_json(path, value):
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -52,7 +63,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True, help='new results directory; refuses to overwrite an existing run')
     parser.add_argument('--batch-size', type=int, default=1000)
     parser.add_argument('--workers', type=int, default=min(4, os.cpu_count() or 1))
-    parser.add_argument('--profile', choices=['mixed', 'general'], default='mixed', help='mixed uses general and targeted stress battles')
+    parser.add_argument('--profile', choices=['mixed', 'general', 'regressions'], default='mixed', help='mixed uses general and targeted stress battles; regressions targets retained observation failures')
     parser.add_argument('--keep-passing', action='store_true', help='keep complete passing recordings too (large)')
     parser.add_argument('--no-build', action='store_true', help='use existing release binaries; their hashes are always recorded')
     args = parser.parse_args()
@@ -78,9 +89,9 @@ def main():
         binary_hashes[name] = hashlib.sha256(dest.read_bytes()).hexdigest()
     oracle_sources = ['oracle/gen_cases.js', 'oracle/lib.js', 'oracle/pool.json']
     provenance = dict(schema_version=1, started_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        engine_commit=git('rev-parse', 'HEAD'), working_tree=git('status', '--porcelain'),
+        engine_commit=git('rev-parse', 'HEAD'), working_tree=git('-c', 'core.fsmonitor=false', 'status', '--porcelain'),
         showdown_commit=git('rev-parse', 'HEAD', cwd=REPO / 'oracle/pokemon-showdown'),
-        showdown_working_tree=git('status', '--porcelain', cwd=REPO / 'oracle/pokemon-showdown'),
+        showdown_working_tree=git('-c', 'core.fsmonitor=false', 'status', '--porcelain', cwd=REPO / 'oracle/pokemon-showdown'),
         node_version=subprocess.check_output(['node', '--version'], text=True).strip(),
         generator_hashes={p: hashlib.sha256((REPO / p).read_bytes()).hexdigest() for p in oracle_sources},
         binaries=binary_hashes, build_requested=not args.no_build, command=sys.argv, scope='complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion')
@@ -98,7 +109,13 @@ def main():
             label, options = THEMES[(targeted // 2) % len(THEMES)]
             options = list(options)
             targeted += 1
-        if i % 2:
+        if args.profile == 'regressions':
+            label, options = REGRESSION_THEMES[i % len(REGRESSION_THEMES)]
+            options = list(options)
+            open_sheets = (i // len(REGRESSION_THEMES)) % 2 == 1
+        else:
+            open_sheets = i % 2 == 1
+        if open_sheets:
             options += ['--open-sheets']
         # Space batch seeds apart so adjacent base seeds do not reuse whole batches.
         tasks.append(dict(label=f'{i + 1:04d}-{label}', seed=(args.seed + i * 1000003) % (2**32 - 1) or 1,
