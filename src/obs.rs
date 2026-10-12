@@ -259,10 +259,20 @@ impl Timers {
         self.weather.see(w.kind as u8, w.st.uid, w.duration, now);
         let t = &b.field.terrain;
         self.terrain.see(t.kind as u8, t.st.uid, t.duration, now);
+        let before = self.screens;
         for side in 0..2 {
             for (k, &kind) in SCREENS.iter().enumerate() {
                 match b.sides[side].conds.get(kind) {
-                    Some(c) => self.screens[side][k].see(1, c.st.uid, c.duration, now),
+                    Some(c) => {
+                        // Court Change transfers the same condition instance,
+                        // including its age. Recover its timer from either side.
+                        if let Some(timer) =
+                            before.iter().map(|row| row[k]).find(|timer| timer.kind != 0 && timer.uid == c.st.uid)
+                        {
+                            self.screens[side][k] = timer;
+                        }
+                        self.screens[side][k].see(1, c.st.uid, c.duration, now);
+                    }
                     None => self.screens[side][k] = Timer::default(),
                 }
             }

@@ -911,6 +911,10 @@ impl Follower {
         let from = parts.iter().find_map(|p| p.strip_prefix("[from]")).map_or("", str::trim);
         // A queued move begins: note how things stand before the reader takes the line in.
         let who = ident(arg(2)).and_then(|id| id.pos.map(|pos| (id.side, pos)));
+        if kind == "cant" && who.is_some_and(|(side, pos)| self.reader.borrowed_cant(side, pos, arg(3), arg(4))) {
+            self.reader.line(line)?;
+            return Ok(());
+        }
         if let Some((side, pos)) = who {
             let begins = match kind {
                 "move" => queued_move(arg(3), from),
@@ -922,10 +926,9 @@ impl Follower {
                 let named = match kind {
                     "move" if from != "lockedmove" => move_id(&to_id(arg(3))),
                     "move" => None,
-                    // (A Focus Punch that lost its focus was named when the focusing began.)
-                    _ => Some(arg(4))
-                        .filter(|m| !m.is_empty() && !m.starts_with('[') && to_id(arg(3)) != "focuspunch")
-                        .and_then(|m| move_id(&to_id(m))),
+                    // A cant naming the attempted move gives its priority too,
+                    // including a Focus Punch whose focus was lost after preparation.
+                    _ => Some(arg(4)).filter(|m| !m.is_empty() && !m.starts_with('[')).and_then(|m| move_id(&to_id(m))),
                 };
                 // A sleeping Pokémon that goes on to use Sleep Talk has both lines for the one move.
                 let named = named.unwrap_or(NO_MOVE);
@@ -962,7 +965,7 @@ impl Follower {
         // queue was sorted while asleep, including Quick Feet's Speed bonus.
         if !(kind == "-curestatus" && parts.contains(&"[msg]"))
             && !(matches!(kind, "-activate" | "-end") && arg(3) == "confusion")
-            && !(kind == "-activate" && arg(3) == "move: Struggle")
+            && !(kind == "-activate" && matches!(arg(3), "move: Struggle" | "move: Attract"))
         {
             self.roused = None;
         }
@@ -1896,7 +1899,9 @@ impl Follower {
                 }
             }
             "-curestatus" => {
-                if parts.contains(&"[msg]") {
+                // Only waking/thawing happens inside BeforeMove. A berry's
+                // paralysis cure must not masquerade as waking from sleep.
+                if parts.contains(&"[msg]") && matches!(arg(3), "slp" | "frz") {
                     let status = if arg(3) == "frz" { Status::Frz } else { Status::Slp };
                     self.roused = Some((side, pos, status));
                 }
@@ -1995,7 +2000,11 @@ impl Follower {
                     let spot = self.spot(side, pos);
                     spot.reordered = Some(spot.reordered.map_or(begun, |t| t.min(begun)));
                 } else if matches!(name.as_str(), "quickclaw" | "quickdraw" | "custapberry") {
-                    self.spot(side, pos).quick = true;
+                    // Instruct resolves a fresh move and can roll its item again;
+                    // that roll did not promote the original queued action.
+                    if !self.spots[side][pos].instructed {
+                        self.spot(side, pos).quick = true;
+                    }
                 } else if name == "symbiosis" {
                     // This transfer is announced only by -activate, not -item.
                     // Keep the donor and recipient's private-item overrides current.

@@ -1,0 +1,1094 @@
+{
+  "uploaded_run": {
+    "completed_batches": 200,
+    "compared_battles": 200000,
+    "failing_battles": 5,
+    "elapsed_seconds": 2532,
+    "observations_actionable_differences": 19,
+    "observations_decisions": 4747539,
+    "observations_differences": 24,
+    "observations_failed": 0,
+    "observations_followed": 200000,
+    "observations_observations": 9831109,
+    "observations_passed_over": 63969,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 4747539,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 200000,
+    "mechanics_unsupported": 0
+  },
+  "uploaded_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-11T23:57:55Z",
+    "engine_commit": "6d84c36ca64f15cf45e8a824ace970397e43db5c",
+    "working_tree": "?? .DS_Store\n?? oracle/.DS_Store\n?? python/.DS_Store\n?? teams/",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.8.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "fa6b784a080208a2478961b73ea527aad8dc5fab1e675c466526f40e80f060d2",
+      "difftest": "1196c187c480d50ed730f8f28fd2640b6e2fced2335b41b274182aea70a16019"
+    },
+    "build_requested": true,
+    "command": [
+      "/Users/matiasbronner/Desktop/pokemon_ml_git/scripts/compare-showdown.py",
+      "--battles",
+      "200000",
+      "--seed",
+      "2732425018",
+      "--workers",
+      "4",
+      "--out",
+      "/Users/matiasbronner/showdown-runs/showdown-2732425018"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-12T00:40:09Z",
+    "generator_unchanged": true
+  },
+  "uploaded_failures": [
+    {
+      "key": "0011-general-battle-830",
+      "generation": {
+        "seed": 2742425048,
+        "original_id": 846,
+        "options": []
+      },
+      "battle_seed": [
+        51525,
+        39966,
+        52507,
+        56024
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 4,
+        "actionable_observations": 61,
+        "decisions": 32,
+        "differences": 4,
+        "errors": [],
+        "first_differences": [
+          "battle 830 step 4 side 0: their mon: speed high: the game has 0.725 (at 631), the follower 1.04"
+        ],
+        "id": 830,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 32,
+        "errors": [],
+        "id": 830,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0017-general-battle-843",
+      "generation": {
+        "seed": 2748425066,
+        "original_id": 859,
+        "options": []
+      },
+      "battle_seed": [
+        6053,
+        61969,
+        2495,
+        12494
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 9,
+        "actionable_observations": 56,
+        "decisions": 32,
+        "differences": 12,
+        "errors": [],
+        "first_differences": [
+          "battle 843 step 14 side 0: side: reflect timer: the game has 0.125 (at 40), the follower 0.5"
+        ],
+        "id": 843,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 32,
+        "errors": [],
+        "id": 843,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0106-general-battle-392",
+      "generation": {
+        "seed": 2837425333,
+        "original_id": 391,
+        "options": [
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        59889,
+        55685,
+        22495,
+        27829
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 34,
+        "decisions": 18,
+        "differences": 2,
+        "errors": [],
+        "first_differences": [
+          "battle 392 step 5 side 0: own position: vol twoturnmove: the game has 1 (at 904), the follower 0"
+        ],
+        "id": 392,
+        "observations": 38,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 18,
+        "errors": [],
+        "id": 392,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0143-general-battle-605",
+      "generation": {
+        "seed": 2874425444,
+        "original_id": 614,
+        "options": []
+      },
+      "battle_seed": [
+        31334,
+        45677,
+        21876,
+        13927
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 19,
+        "decisions": 11,
+        "differences": 4,
+        "errors": [],
+        "first_differences": [
+          "battle 605 step 9 side 0: their mon: speed high: the game has 0.485 (at 527), the follower 0.68"
+        ],
+        "id": 605,
+        "observations": 24,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 11,
+        "errors": [],
+        "id": 605,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0187-general-battle-539",
+      "generation": {
+        "seed": 2918425576,
+        "original_id": 550,
+        "options": []
+      },
+      "battle_seed": [
+        31685,
+        19310,
+        16359,
+        61397
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 2,
+        "actionable_observations": 34,
+        "decisions": 19,
+        "differences": 2,
+        "errors": [],
+        "first_differences": [
+          "battle 539 step 17 side 0: their mon: moves known: the game has 0.5 (at 661), the follower 0.75"
+        ],
+        "id": 539,
+        "observations": 40,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 19,
+        "errors": [],
+        "id": 539,
+        "status": "matched"
+      }
+    }
+  ],
+  "retained_final_replay": {
+    "cases": [
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 61,
+        "decisions": 32,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 830,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 56,
+        "decisions": 32,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 843,
+        "observations": 66,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 34,
+        "decisions": 18,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 392,
+        "observations": 38,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 19,
+        "decisions": 11,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 605,
+        "observations": 24,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 34,
+        "decisions": 19,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 539,
+        "observations": 40,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 132,
+        "decisions": 68,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 25,
+        "observations": 138,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 50,
+        "decisions": 31,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 11,
+        "observations": 64,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 38,
+        "decisions": 22,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 9,
+        "observations": 46,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    ],
+    "schema_version": 1,
+    "summary": {
+      "actionable_differences": 0,
+      "decisions": 233,
+      "differences": 0,
+      "failed": 0,
+      "followed": 8,
+      "observations": 482,
+      "passed_over": 0,
+      "unsupported": 0
+    }
+  },
+  "targeted_generation_seed": 1546319087,
+  "targeted_manifest": [
+    {
+      "label": "0001-waking-attract",
+      "seed": 1546319087,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus"
+      ]
+    },
+    {
+      "label": "0002-court-change",
+      "seed": 1547319090,
+      "n": 25,
+      "options": [
+        "--species",
+        "cinderace",
+        "--moves",
+        "courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard",
+        "--moves-per",
+        "3",
+        "--items",
+        "lightclay,leftovers"
+      ]
+    },
+    {
+      "label": "0003-reflected-healing",
+      "seed": 1548319093,
+      "n": 25,
+      "options": [
+        "--moves",
+        "healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "magicbounce,innerfocus"
+      ]
+    },
+    {
+      "label": "0004-instruct-quick-claw",
+      "seed": 1549319096,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru",
+        "--moves",
+        "instruct,rockslide,earthquake,drainingkiss,protect",
+        "--moves-per",
+        "3",
+        "--items",
+        "quickclaw,leftovers"
+      ]
+    },
+    {
+      "label": "0005-illusion-focus-punch",
+      "seed": 1550319099,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,machamp",
+        "--moves",
+        "focuspunch,substitute,uturn,headsmash,protect",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0006-illusion-form",
+      "seed": 1551319102,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0007-illusion-items",
+      "seed": 1552319105,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers"
+      ]
+    },
+    {
+      "label": "0008-residual-weather",
+      "seed": 1553319108,
+      "n": 25,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0009-broken-guards",
+      "seed": 1554319111,
+      "n": 25,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers"
+      ]
+    },
+    {
+      "label": "0010-types",
+      "seed": 1555319114,
+      "n": 25,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0011-pressure",
+      "seed": 1556319117,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst"
+      ]
+    },
+    {
+      "label": "0012-choice-swap",
+      "seed": 1557319120,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct"
+      ]
+    },
+    {
+      "label": "0013-mental-herb",
+      "seed": 1558319123,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0014-trapping",
+      "seed": 1559319126,
+      "n": 25,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers"
+      ]
+    },
+    {
+      "label": "0015-called-moves",
+      "seed": 1560319129,
+      "n": 25,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster"
+      ]
+    },
+    {
+      "label": "0016-waking-attract",
+      "seed": 1561319132,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0017-court-change",
+      "seed": 1562319135,
+      "n": 25,
+      "options": [
+        "--species",
+        "cinderace",
+        "--moves",
+        "courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard",
+        "--moves-per",
+        "3",
+        "--items",
+        "lightclay,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0018-reflected-healing",
+      "seed": 1563319138,
+      "n": 25,
+      "options": [
+        "--moves",
+        "healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "magicbounce,innerfocus",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0019-instruct-quick-claw",
+      "seed": 1564319141,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru",
+        "--moves",
+        "instruct,rockslide,earthquake,drainingkiss,protect",
+        "--moves-per",
+        "3",
+        "--items",
+        "quickclaw,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0020-illusion-focus-punch",
+      "seed": 1565319144,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,machamp",
+        "--moves",
+        "focuspunch,substitute,uturn,headsmash,protect",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0021-illusion-form",
+      "seed": 1566319147,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0022-illusion-items",
+      "seed": 1567319150,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0023-residual-weather",
+      "seed": 1568319153,
+      "n": 25,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0024-broken-guards",
+      "seed": 1569319156,
+      "n": 25,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0025-types",
+      "seed": 1570319159,
+      "n": 25,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0026-pressure",
+      "seed": 1571319162,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0027-choice-swap",
+      "seed": 1572319165,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0028-mental-herb",
+      "seed": 1573319168,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0029-trapping",
+      "seed": 1574319171,
+      "n": 25,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0030-called-moves",
+      "seed": 1575319174,
+      "n": 25,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0031-waking-attract",
+      "seed": 1576319177,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus"
+      ]
+    },
+    {
+      "label": "0032-court-change",
+      "seed": 1577319180,
+      "n": 25,
+      "options": [
+        "--species",
+        "cinderace",
+        "--moves",
+        "courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard",
+        "--moves-per",
+        "3",
+        "--items",
+        "lightclay,leftovers"
+      ]
+    },
+    {
+      "label": "0033-reflected-healing",
+      "seed": 1578319183,
+      "n": 25,
+      "options": [
+        "--moves",
+        "healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "magicbounce,innerfocus"
+      ]
+    },
+    {
+      "label": "0034-instruct-quick-claw",
+      "seed": 1579319186,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru",
+        "--moves",
+        "instruct,rockslide,earthquake,drainingkiss,protect",
+        "--moves-per",
+        "3",
+        "--items",
+        "quickclaw,leftovers"
+      ]
+    },
+    {
+      "label": "0035-illusion-focus-punch",
+      "seed": 1580319189,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,machamp",
+        "--moves",
+        "focuspunch,substitute,uturn,headsmash,protect",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0036-illusion-form",
+      "seed": 1581319192,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0037-illusion-items",
+      "seed": 1582319195,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers"
+      ]
+    },
+    {
+      "label": "0038-residual-weather",
+      "seed": 1583319198,
+      "n": 25,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0039-broken-guards",
+      "seed": 1584319201,
+      "n": 25,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers"
+      ]
+    },
+    {
+      "label": "0040-types",
+      "seed": 1585319204,
+      "n": 25,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3"
+      ]
+    }
+  ],
+  "targeted_initial_candidate": {
+    "completed_batches": 40,
+    "compared_battles": 1000,
+    "failing_battles": 3,
+    "elapsed_seconds": 116,
+    "observations_actionable_differences": 50,
+    "observations_decisions": 30374,
+    "observations_differences": 62,
+    "observations_failed": 0,
+    "observations_followed": 1000,
+    "observations_observations": 62396,
+    "observations_passed_over": 352,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 30374,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 1000,
+    "mechanics_unsupported": 0
+  },
+  "targeted_additional_findings": [
+    {
+      "key": "0001-waking-attract-battle-25",
+      "generation": {
+        "seed": 1546319087,
+        "original_id": 24,
+        "options": [
+          "--moves",
+          "rest,sleeptalk,attract,hypnosis,protect,dig",
+          "--moves-per",
+          "3",
+          "--abilities",
+          "quickfeet,innerfocus"
+        ]
+      },
+      "battle_seed": [
+        24614,
+        58295,
+        39232,
+        682
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 6,
+        "actionable_observations": 132,
+        "decisions": 68,
+        "differences": 6,
+        "errors": [],
+        "first_differences": [
+          "battle 25 step 8 side 1: their mon: speed high: the game has 0.59 (at 423), the follower 0.755"
+        ],
+        "id": 25,
+        "observations": 138,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 68,
+        "errors": [],
+        "id": 25,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0020-illusion-focus-punch-battle-11",
+      "generation": {
+        "seed": 1565319144,
+        "original_id": 10,
+        "options": [
+          "--species",
+          "zoroark,zoroarkhisui,machamp",
+          "--moves",
+          "focuspunch,substitute,uturn,headsmash,protect",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        18352,
+        38677,
+        5011,
+        24005
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 27,
+        "actionable_observations": 50,
+        "decisions": 31,
+        "differences": 34,
+        "errors": [],
+        "first_differences": [
+          "battle 11 step 14 side 0: their mon: speed low: the game has 0.725 (at 630), the follower 0.585"
+        ],
+        "id": 11,
+        "observations": 64,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 31,
+        "errors": [],
+        "id": 11,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0020-illusion-focus-punch-battle-9",
+      "generation": {
+        "seed": 1565319144,
+        "original_id": 8,
+        "options": [
+          "--species",
+          "zoroark,zoroarkhisui,machamp",
+          "--moves",
+          "focuspunch,substitute,uturn,headsmash,protect",
+          "--moves-per",
+          "3",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        56618,
+        26542,
+        9630,
+        62313
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 17,
+        "actionable_observations": 38,
+        "decisions": 22,
+        "differences": 22,
+        "errors": [],
+        "first_differences": [
+          "battle 9 step 2 side 0: their mon: speed low: the game has 0.705 (at 578), the follower 0.65"
+        ],
+        "id": 9,
+        "observations": 46,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 22,
+        "errors": [],
+        "id": 9,
+        "status": "matched"
+      }
+    }
+  ],
+  "targeted_final_observations": {
+    "actionable_differences": 0,
+    "decisions": 30374,
+    "differences": 0,
+    "failed": 0,
+    "followed": 1000,
+    "observations": 62396,
+    "passed_over": 352,
+    "unsupported": 0
+  },
+  "targeted_final_mechanics": {
+    "decisions": 30374,
+    "diverged": 0,
+    "matched": 1000,
+    "unsupported": 0
+  },
+  "source_sha256": {
+    "src/follow.rs": "a4ae844016d0c9ec0d1b1f2101bcb8e6780aff2994f7c6b3b2ecc3db247e8a57",
+    "src/observer.rs": "44861c6ca6939beb6e82982d5ff921256592acb8db77f3bb38243c9103461844",
+    "src/obs.rs": "8ef5a769d7a525030003770da339ef7ef6dbbf0a54126c0e401f429b03715ec2",
+    "src/moves.rs": "82347aa770d8ad8186641509bad20834f446c0d413e4a69dd77d7626ae60edb7",
+    "scripts/compare-showdown.py": "2e86bdbe6e1a053f07b1a0e3cf607ea823b429426cdf5c4f410174448cf7eac0"
+  },
+  "binary_sha256": {
+    "target/release/followcheck": "207b48777a13e6cdc8aef17905487430e61fe1f02761c15690d644dc180892c3",
+    "target/release/difftest": "a39ea25e466649e210053a8d76031a23fba1e00a6e5a6c082b293b5c69079b74"
+  },
+  "integration_tests": {
+    "follow_passed": 14,
+    "shown_passed": 12,
+    "speed_passed": 5,
+    "failures": 0
+  },
+  "additional_env_suite": "10 tests passed; unrelated long-running baseline strength test was cancelled. Final relevant integration suites were run separately.",
+  "large_sweep_launched": false
+}

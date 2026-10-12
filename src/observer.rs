@@ -100,6 +100,9 @@ pub struct Observer {
     cud_chew: Option<(usize, String)>,
     /// The move in progress is Skill Swap.
     swapping: bool,
+    /// User, target and move of the last move line, for a bounced move
+    /// stopped before Showdown can emit its own move line.
+    current_move: Option<((usize, usize), (usize, usize), u16)>,
 }
 
 /// Which of the Pokémon a line mentions has the ability or item it names.
@@ -468,6 +471,15 @@ impl Observer {
         Ok(())
     }
 
+    /// Heal Block can stop a reflected Heal Pulse before its move line. This
+    /// cant belongs to the bounce, not the target's original queued action.
+    pub(crate) fn borrowed_cant(&self, side: usize, pos: usize, reason: &str, named: &str) -> bool {
+        reason == "move: Heal Block"
+            && self.current_move.is_some_and(|(user, target, mv)| {
+                user != (side, pos) && target == (side, pos) && MOVES[mv as usize].id == to_id(named)
+            })
+    }
+
     /// Reads one line of the log.
     pub fn line(&mut self, line: &str) -> Result<(), String> {
         self.read(line)?;
@@ -497,6 +509,9 @@ impl Observer {
         let kind = parts[1];
         if matches!(kind, "" | "move" | "switch" | "drag" | "turn" | "upkeep") {
             self.used_up.clear();
+        }
+        if matches!(kind, "" | "-fail" | "switch" | "drag" | "turn" | "upkeep") {
+            self.current_move = None;
         }
         let arg = |i: usize| parts.get(i).copied().unwrap_or("");
         let of = parts.iter().find_map(|p| p.strip_prefix("[of] ")).and_then(ident);
@@ -605,6 +620,10 @@ impl Observer {
             }
             "move" => {
                 let mv = a_move(arg(3))?;
+                self.current_move = id.pos.and_then(|p| {
+                    let target = ident(arg(4))?;
+                    Some(((id.side, p), (target.side, target.pos?), mv))
+                });
                 self.swapping = mv == mv::SKILLSWAP;
                 // A move used outright is its own, and so is one Sleep Talk picks or a Round sung
                 // after another. One borrowed by Copycat is not, and the later turns of a move
@@ -625,9 +644,11 @@ impl Observer {
                 // someone's ability, A is that ability's holder, the Pokémon that could not
                 // move comes after `[of]`, and its move has already had a line of its own.
                 let reason = arg(3);
+                let borrowed = id.pos.is_some_and(|p| self.borrowed_cant(id.side, p, reason, arg(4)));
+                self.current_move = None;
                 self.named(kind, false, &id, of.as_ref(), reason)?;
                 let mv = arg(4);
-                if !reason.starts_with("ability: ") && !mv.is_empty() && !mv.starts_with('[') {
+                if !borrowed && !reason.starts_with("ability: ") && !mv.is_empty() && !mv.starts_with('[') {
                     self.used_move(&id, a_move(mv)?, false);
                 }
             }

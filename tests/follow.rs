@@ -23,6 +23,65 @@ fn cases() -> Vec<FollowCase> {
 }
 
 #[test]
+fn local_200000_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/local_200000_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 8);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        let steps = match case.id {
+            830 => 4,
+            843 => 14,
+            392 => 5,
+            605 => 9,
+            539 => 17,
+            25 => 8,
+            9 => 2,
+            11 => 14,
+            _ => panic!("unexpected regression case"),
+        };
+        let side = if case.id == 25 { 1 } else { 0 };
+        let mut me = follower_for(case, side);
+        let opp = &case.rosters[1 - side];
+        me.trust_item_clause(
+            opp.iter()
+                .enumerate()
+                .all(|(j, a)| a.item.as_deref().is_none_or(str::is_empty) || opp[..j].iter().all(|b| b.item != a.item)),
+        );
+        me.lines(&Follower::own_lines(side, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[side].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(side, &step.after.log)).unwrap();
+            me.request(&step.after.requests[side].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        match case.id {
+            830 => assert_eq!(f[631], 145.0 / 200.0, "Attract after waking preserves Quick Feet queue evidence"),
+            843 => assert_eq!(f[40], 4.0 / 8.0, "Court Change preserves Reflect's elapsed age"),
+            392 => {
+                assert_eq!(f[904], 1.0, "a refused reflected heal does not cancel charging");
+                assert_eq!(f[912], 1.0, "Solar Blade remains prepared");
+            }
+            605 => assert_eq!(f[527], 97.0 / 200.0, "an instructed Quick Claw roll cannot promote the queued move"),
+            539 => {
+                assert_eq!(f[661], 0.75, "lost-focus cant reveals the unmasked Pokémon's move");
+                assert_eq!(i[94], vgc_engine::data::move_id("focuspunch").unwrap() as i16 + vgc_engine::obs::ID_BASE);
+            }
+            25 => assert_eq!(f[423], 118.0 / 200.0, "a Cheri Berry cure is not waking from sleep"),
+            9 => assert_eq!(f[578], 141.0 / 200.0, "lost-focus order supplies Speed evidence"),
+            11 => assert_eq!(f[630], 145.0 / 200.0, "lost focus after a pivot preserves queued priority"),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(tally.observations, 482);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn illusion_residual_and_guard_failures_have_matching_observations() {
     let cases: Vec<FollowCase> = include_str!("fixtures/illusion_residual_guard_regressions.jsonl")
         .lines()

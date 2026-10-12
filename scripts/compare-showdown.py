@@ -30,8 +30,14 @@ THEMES = [
 
 
 # New uploaded failures plus earlier observation regressions. With 50-battle
-# batches, 1,000 battles exercises each theme in both sheet modes.
+# batches, 1,500 battles exercises each theme in both sheet modes.
+# Use 25-battle batches for a 1,000-battle run covering every theme in both modes.
 REGRESSION_THEMES = [
+    ('waking-attract', ['--moves', 'rest,sleeptalk,attract,hypnosis,protect,dig', '--moves-per', '3', '--abilities', 'quickfeet,innerfocus']),
+    ('court-change', ['--species', 'cinderace', '--moves', 'courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard', '--moves-per', '3', '--items', 'lightclay,leftovers']),
+    ('reflected-healing', ['--moves', 'healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect', '--moves-per', '3', '--abilities', 'magicbounce,innerfocus']),
+    ('instruct-quick-claw', ['--species', 'oranguru', '--moves', 'instruct,rockslide,earthquake,drainingkiss,protect', '--moves-per', '3', '--items', 'quickclaw,leftovers']),
+    ('illusion-focus-punch', ['--species', 'zoroark,zoroarkhisui,machamp', '--moves', 'focuspunch,substitute,uturn,headsmash,protect', '--moves-per', '3']),
     ('illusion-form', ['--species', 'zoroark,zoroarkhisui,aegislash', '--moves', 'uturn,kingsshield,willowisp,toxic,bounce,ironhead', '--moves-per', '3']),
     ('illusion-items', ['--species', 'zoroark,zoroarkhisui,aegislash', '--moves', 'trick,switcheroo,uturn,protect,scaryface', '--moves-per', '3', '--items', 'choicescarf,ironball,focusband,leftovers']),
     ('residual-weather', ['--species', 'politoed,pelipper,passimian', '--abilities', 'receiver,drizzle,drought,innerfocus', '--moves', 'toxic,willowisp,protect,raindance,sunnyday', '--moves-per', '3']),
