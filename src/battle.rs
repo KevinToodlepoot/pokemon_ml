@@ -1300,6 +1300,7 @@ impl Battle {
         if self.mon(incoming).is_active {
             return false;
         }
+        let mut copied_gastro = false;
         let side = incoming.side as usize;
         if !at_start {
             let old = self.active(side, pos);
@@ -1361,6 +1362,7 @@ impl Battle {
             self.sides[side].order[pos] = incoming.idx;
             self.sides[side].order[old_new_pos as usize] = old.idx;
             if let Some((list, boosts)) = passed {
+                copied_gastro = list.has(VolKind::Gastroacid);
                 self.vols[side][pos] = list;
                 self.mon_mut(incoming).boosts = boosts;
                 for i in 0..list.as_slice().len() {
@@ -1388,6 +1390,7 @@ impl Battle {
         self.run_event(Ev::BeforeSwitchIn, Some(incoming), None, Eff::None, Res::Undef);
         // The `switch` line.
         self.shown_enter(incoming);
+        self.mon_mut(incoming).live.copied_gastro = copied_gastro;
         self.note_speed_switch(incoming);
         // `queue.insertChoice({choice: 'runSwitch', pokemon})`: the speed is
         // computed once to cache it and once more for the action.

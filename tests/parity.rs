@@ -14,6 +14,18 @@ fn fixture() -> Vec<Case> {
 }
 
 #[test]
+fn endure_preserves_one_hp_against_instructed_confusion() {
+    let case: Case = serde_json::from_str(include_str!("fixtures/endure_confusion_regression.jsonl")).unwrap();
+    for mode in [Rebuild::No, Rebuild::ByHand] {
+        match check_case_with(&case, mode) {
+            Outcome::Pass(n) => assert_eq!(n, 21),
+            Outcome::Fail(why) => panic!("{}", why.join("; ")),
+            Outcome::Unsupported(why) => panic!("unsupported: {why}"),
+        }
+    }
+}
+
+#[test]
 fn future_sight_red_card_and_life_orb_match_showdown() {
     let cases: Vec<Case> = include_str!("fixtures/future_sight_ripen_instruct_regressions.jsonl")
         .lines()

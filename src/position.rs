@@ -526,6 +526,8 @@ pub struct ShownState {
     /// It left the field while that was still open.
     #[serde(skip_serializing_if = "is_default")]
     pub tainted: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub copied_gastro: bool,
 }
 
 /// One Pokémon of the team a side registered: what Team Preview showed and,
@@ -578,6 +580,7 @@ impl ShownState {
             listed: Some(if rec.listed == NOT_LISTED { -1 } else { rec.listed as i8 }),
             suspect: rec.suspect,
             tainted: rec.tainted,
+            copied_gastro: rec.copied_gastro,
         }
     }
 
@@ -618,6 +621,7 @@ impl ShownState {
         rec.borrowed = find_move_or_none(&self.borrowed)?;
         rec.suspect = self.suspect;
         rec.tainted = self.tainted;
+        rec.copied_gastro = self.copied_gastro;
         Ok(rec)
     }
 }

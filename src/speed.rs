@@ -320,9 +320,21 @@ pub(crate) enum Event {
         named: u16,
     },
     /// The log has a Pokémon lose its item (`lost`) or come by one.
-    Item { side: u8, listed: u8, doubt: bool, item: u16, lost: bool },
+    Item {
+        side: u8,
+        listed: u8,
+        doubt: bool,
+        item: u16,
+        lost: bool,
+    },
     /// A new stay can reuse the roster number of a departing disguise.
-    Switch { r: MonRef },
+    Switch {
+        r: MonRef,
+    },
+    Swap {
+        first: MonRef,
+        second: MonRef,
+    },
 }
 
 thread_local! {
@@ -364,7 +376,8 @@ pub(crate) fn seen(b: &Battle, r: MonRef) -> Seen {
         item: live.item,
         ability: live.ability,
         ability_changed: live.ability_changed,
-        gastro_acid: b.vols(r).has(VolKind::Gastroacid),
+        gastro_acid: b.vols(r).has(VolKind::Gastroacid)
+            || (live.copied_gastro && live.ability == UNKNOWN && !b.open_team_sheets),
         true_item: m.item,
     }
 }
@@ -451,6 +464,13 @@ impl Battle {
                     *named = move_id;
                 }
             });
+        }
+    }
+
+    /// A successful Speed Swap exchanged these stats, including a called move.
+    pub(crate) fn note_speed_swap(&self, first: MonRef, second: MonRef) {
+        if on() {
+            LOG.with(|log| log.borrow_mut().push(Event::Swap { first, second }));
         }
     }
 
@@ -797,6 +817,11 @@ impl Speeds {
             swapped_at.push(self.swapped);
             match *event {
                 Event::Switch { r } => self.swapped[r.side as usize][r.idx as usize] = false,
+                Event::Swap { first, second } => {
+                    for r in [first, second] {
+                        self.swapped[r.side as usize][r.idx as usize] = true;
+                    }
+                }
                 Event::Item { side, listed, doubt, item, lost } => {
                     let Some(belief) = self.belief[side as usize].get_mut(listed as usize) else { continue };
                     // A Mega Stone that comes to light was there all along: nothing takes one away.
@@ -840,12 +865,7 @@ impl Speeds {
                         }
                     }
                 }
-                Event::Start { seen, named, .. } => {
-                    if named == mv::SPEEDSWAP {
-                        for s in seen.iter().filter(|s| s.present) {
-                            self.swapped[s.r.side as usize][s.r.idx as usize] = true;
-                        }
-                    }
+                Event::Start { .. } => {
                     // This one moved after each of those that started before it.
                     for i in 0..j {
                         self.compare(events, i, j, &swapped_at[i], b);
@@ -865,6 +885,11 @@ impl Speeds {
         else {
             return;
         };
+        // An instructed/promoted action does not establish the ordering of
+        // the original queued action, even if it happens to name the same move.
+        if later.order != 200 {
+            return;
+        }
         // The second as it stood in the queue when the first went.
         let Some(second) = rest[..*n_rest as usize].iter().find(|q| q.r == later.r) else { return };
         let ordinary = |q: &Queued, named: u16| q.order == 200 && named != NO_MOVE && named == q.move_id;

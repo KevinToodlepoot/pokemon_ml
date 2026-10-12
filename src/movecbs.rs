@@ -586,6 +586,7 @@ impl Battle {
             // ---- Speed Swap: onHit(target, source). Trade the Speed stats themselves.
             (mv::SPEEDSWAP, Ev::Hit) => {
                 if let (Some(target), Some(source)) = (e.target, e.source) {
+                    self.note_speed_swap(source, target);
                     let (theirs, mine) = (self.mon(target).stats[5], self.mon(source).stats[5]);
                     self.mon_mut(target).stats[5] = mine;
                     self.mon_mut(source).stats[5] = theirs;

@@ -30,9 +30,18 @@ THEMES = [
 
 
 # New uploaded failures plus earlier observation regressions. With 50-battle
-# batches, 1,800 battles exercises each theme in both sheet modes.
-# Use 25-battle batches for a 1,000-battle run covering every theme in both modes.
+# batches, 2,700 battles exercises each theme in both sheet modes.
+# Use 25-battle batches for a 2,000-battle run covering every theme in both modes.
 REGRESSION_THEMES = [
+    ('toxic-replacement', ['--moves', 'toxic,protect,uturn,voltswitch,roar,whirlwind', '--moves-per', '3', '--abilities', 'emergencyexit,innerfocus', '--items', 'ejectbutton,redcard,leftovers']),
+    ('confusion-instruct', ['--species', 'oranguru', '--moves', 'instruct,confuseray,swagger,teeterdance,protect,encore', '--moves-per', '3']),
+    ('psychic-mega-pressure', ['--species', 'delphox,hatterene', '--abilities', 'pressure,innerfocus', '--moves', 'expandingforce,psychicterrain,encore,protect', '--moves-per', '3']),
+    ('solar-animation', ['--abilities', 'pressure,innerfocus', '--moves', 'solarbeam,solarblade,sunnyday,encore,protect', '--moves-per', '3', '--items', 'choicescarf,leftovers']),
+    ('illusion-hunger-switch', ['--species', 'morpeko,zoroark,zoroarkhisui', '--moves', 'aurawheel,round,uturn,protect,confuseray', '--moves-per', '3']),
+    ('reflected-heal-knowledge', ['--abilities', 'magicbounce,innerfocus', '--moves', 'healpulse,psychicnoise,protect,transform', '--moves-per', '3']),
+    ('called-speed-swap', ['--species', 'oranguru', '--moves', 'speedswap,copycat,instruct,encore,protect', '--moves-per', '3']),
+    ('baton-suppression', ['--abilities', 'battlebond,innerfocus,pressure', '--moves', 'batonpass,gastroacid,skillswap,entrainment,protect', '--moves-per', '3']),
+    ('encore-quick-claw', ['--abilities', 'prankster,pressure,innerfocus', '--items', 'quickclaw,choicescarf,leftovers', '--moves', 'encore,confuseray,spite,dig,protect', '--moves-per', '3']),
     ('future-sight-recoil', ['--species', 'slowking,slowbro', '--moves', 'futuresight,protect,trick,uturn,psychicnoise', '--moves-per', '3', '--items', 'lifeorb,redcard,ejectbutton,leftovers']),
     ('ripen-leppa', ['--abilities', 'ripen,pressure,innerfocus', '--items', 'leppaberry,mentalherb,choicescarf', '--moves', 'guardswap,protect,encore,spite,skillswap,trick', '--moves-per', '3']),
     ('instruct-sleep', ['--species', 'oranguru,alcremie', '--moves', 'instruct,snore,sleeptalk,rest,encore,round', '--moves-per', '3']),

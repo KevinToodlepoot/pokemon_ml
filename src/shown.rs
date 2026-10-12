@@ -154,6 +154,9 @@ pub(crate) struct Shown {
     /// It left the field while that was still open, so part of what is noted
     /// here may be about the Illusion Pokémon instead.
     pub tainted: bool,
+    /// Baton Pass copied suppression; a hidden unsuppressible ability may
+    /// silently remove it without giving the opponent that information.
+    pub copied_gastro: bool,
 }
 
 pub(crate) const NOTHING_SHOWN: Shown = Shown {
@@ -173,6 +176,7 @@ pub(crate) const NOTHING_SHOWN: Shown = Shown {
     listed: NOT_LISTED,
     suspect: false,
     tainted: false,
+    copied_gastro: false,
 };
 
 impl Shown {
@@ -245,6 +249,7 @@ impl Shown {
     /// Leaving the field: the ability goes back to its own. And if it was
     /// never settled whether this was the Pokémon it looked like, it never will be.
     pub(crate) fn leave(&mut self) {
+        self.copied_gastro = false;
         self.ability = self.base_ability;
         self.ability_changed = false;
         self.borrowed = NO_MOVE;
