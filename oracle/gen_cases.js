@@ -673,10 +673,10 @@ function runCase(id) {
 	if (REQUESTS) out.initial.requests = requests();
 	while (!battle.ended) {
 		if (battle.turn > MAX_TURNS) { out.truncated = true; break; }
-		if (script && out.steps.length >= script.choices.length) break;
+		if (script && script.choices && out.steps.length >= script.choices.length) break;
 		const legal = battle.sides.map(side => legalOptions(battle, side));
 		if (CHECK_LEGAL) battle.sides.forEach((side, s) => checkLegal(battle, side, legal[s]));
-		const choices = script ?
+		const choices = script && script.choices ?
 			script.choices[out.steps.length].map(c => (c || 'pass, pass').split(/,\s*/)) :
 			legal.map((opts, s) => chooseFor(rand, opts, battle.sides[s]));
 		// Decide who is being asked before anyone answers: the last answer starts the next

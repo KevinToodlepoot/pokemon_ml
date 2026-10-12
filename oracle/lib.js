@@ -1,7 +1,7 @@
 // Shared helpers for the Showdown oracle scripts.
 'use strict';
 const path = require('path');
-const PS = require(path.join(__dirname, 'pokemon-showdown', 'dist', 'sim'));
+const PS = require(path.join(process.env.PS_DIR || path.join(__dirname, 'pokemon-showdown'), 'dist', 'sim'));
 
 const MOD = 'champions';
 const FORMAT = 'gen9championsvgc2026regmc';
