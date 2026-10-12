@@ -182,6 +182,9 @@ impl Battle {
         }
         // The move's own beforeMoveCallback (Focus Punch after being hit).
         if self.move_has_cb(mi, Ev::BeforeMoveCallback) && self.before_move_callback(mi, pokemon) {
+            // The lost-focus cant names Focus Punch under the current identity,
+            // even if damage just revealed an Illusion user after preparation.
+            self.show_move_used(pokemon, a.move_id);
             self.clear_active_move(true);
             self.mon_mut(pokemon).move_this_turn = FALSE;
             return;
