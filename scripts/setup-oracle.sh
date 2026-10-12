@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../oracle"
 
-COMMIT=ad7ca5d51c03865e6829dbec3a7875df71480fb8   # 2026-10-08, has [Gen 9 Champions] VGC 2026 Reg M-C
+COMMIT=9fb3a5b99f1a0bea17f495c5cc1bfe04fdd19c3e   # 2026-10-03, vgc-bot's Showdown pin (D55); has [Gen 9 Champions] VGC 2026 Reg M-C
 
 if [ ! -d pokemon-showdown/.git ]; then
   mkdir -p pokemon-showdown

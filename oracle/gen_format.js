@@ -19,10 +19,11 @@ const ids = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (!ids.length) ids.push(L.FORMAT);
 
 const commit = (() => {
+	// The checkout `lib.js` loaded (PS_DIR or oracle/pokemon-showdown); `git` handles a
+	// submodule checkout, whose .git is a file, as well as a plain clone.
 	try {
-		const git = path.join(__dirname, 'pokemon-showdown', '.git');
-		const head = fs.readFileSync(path.join(git, 'HEAD'), 'utf8').trim();
-		return head.startsWith('ref:') ? fs.readFileSync(path.join(git, head.slice(5)), 'utf8').trim() : head;
+		const dir = process.env.PS_DIR || path.join(__dirname, 'pokemon-showdown');
+		return require('child_process').execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 	} catch {
 		return 'unknown';
 	}
