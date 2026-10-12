@@ -23,6 +23,125 @@ fn cases() -> Vec<FollowCase> {
 }
 
 #[test]
+fn solar_pressure_and_hidden_baton_suppression_regressions_match() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/local_300000_targeted_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 4);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        if case.id == 8 {
+            for side in 0..2 {
+                let mut me = follower_for(case, side);
+                let opp = &case.rosters[1 - side];
+                me.trust_item_clause(opp.iter().enumerate().all(|(j, a)| {
+                    a.item.as_deref().is_none_or(str::is_empty) || opp[..j].iter().all(|b| b.item != a.item)
+                }));
+                me.lines(&Follower::own_lines(side, &case.initial.log)).unwrap();
+                me.request(&case.initial.requests[side].to_string()).unwrap();
+                for step in &case.steps[..8] {
+                    me.lines(&Follower::own_lines(side, &step.after.log)).unwrap();
+                    me.request(&step.after.requests[side].to_string()).unwrap();
+                }
+                let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+                me.observe(&mut f, &mut i, &mut mask).unwrap();
+                if side == 0 {
+                    assert_eq!(f[1144], 1.0, "the opponent cannot know suppression was silently removed");
+                    me.line("|-activate|p2b: Alcremie0|ability: Battle Bond").unwrap();
+                    me.request(&case.steps[7].after.requests[side].to_string()).unwrap();
+                    me.observe(&mut f, &mut i, &mut mask).unwrap();
+                    assert_eq!(f[1144], 0.0, "a public Battle Bond activation resolves the suppression uncertainty");
+                } else {
+                    assert_eq!(f[894], 0.0, "the holder knows its own unsuppressible ability");
+                }
+            }
+        }
+    }
+    assert_eq!(tally.observations, 268);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
+fn instructed_confusion_into_endure_has_matching_observations() {
+    let case: FollowCase = serde_json::from_str(include_str!("fixtures/endure_confusion_regression.jsonl")).unwrap();
+    let mut tally = FollowTally::default();
+    assert!(matches!(check_follow(&case, &mut tally), Outcome::Pass(21)));
+    assert_eq!(tally.observations, 44);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
+fn local_300000_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/local_300000_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 10);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        let (steps, side) = match case.id {
+            992 => (9, 0),
+            733 => (2, 0),
+            834 => (9, 0),
+            970 => (11, 0),
+            582 => (12, 0),
+            236 => (15, 1),
+            574 => (35, 1),
+            328 => (6, 0),
+            892 => (5, 0),
+            111 => (10, 0),
+            _ => unreachable!(),
+        };
+        let mut me = follower_for(case, side);
+        let opp = &case.rosters[1 - side];
+        me.trust_item_clause(
+            opp.iter()
+                .enumerate()
+                .all(|(j, a)| a.item.as_deref().is_none_or(str::is_empty) || opp[..j].iter().all(|b| b.item != a.item)),
+        );
+        me.lines(&Follower::own_lines(side, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[side].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(side, &step.after.log)).unwrap();
+            me.request(&step.after.requests[side].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        match case.id {
+            992 => assert_eq!(f[495], 0.0, "a pending SwitchIn cannot expose the previous Toxic counter"),
+            733 => {
+                assert_eq!(
+                    f[526],
+                    47.0 / 200.0,
+                    "an instructed repeat does not reveal the unknown original queued move"
+                )
+            }
+            834 => assert_eq!(f[262], 11.0 / 12.0, "Mega Levitate prevents spread Expanding Force Pressure costs"),
+            970 => assert_eq!(f[265], 7.0 / 12.0, "the instant solar animation resolves the Pressure target"),
+            582 => assert_eq!(
+                i[72],
+                vgc_engine::data::species_id("morpekohangry").unwrap() as i16 + vgc_engine::obs::ID_BASE
+            ),
+            236 => assert_eq!(
+                f[423],
+                101.0 / 200.0,
+                "an instructed repeat cannot reveal the failed queued move's priority"
+            ),
+            574 => assert_eq!(f[453], 0.75, "a failed reflection does not establish ownership of Heal Pulse"),
+            328 => assert_eq!(f[810], 0.0, "called Speed Swap makes the old first-mover inference unavailable"),
+            892 => assert_eq!(f[422], 111.0 / 200.0, "Encore invalidates the initial Quick Claw roll"),
+            111 => assert_eq!(f[1144], 0.0, "Battle Bond discards Baton Passed Gastro Acid"),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(tally.observations, 662);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn future_sight_ripen_and_instruct_failures_have_matching_observations() {
     let cases: Vec<FollowCase> = include_str!("fixtures/future_sight_ripen_instruct_regressions.jsonl")
         .lines()

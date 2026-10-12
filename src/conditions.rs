@@ -386,7 +386,7 @@ impl Battle {
             // onDamage(damage, target, source, effect)
             (VolKind::Endure, Ev::Damage) => {
                 let hp = self.mon(holder).hp as i32;
-                if matches!(e.effect, Eff::Move(_)) && e.relay.num() >= hp {
+                if e.effect.is_move() && e.relay.num() >= hp {
                     return Res::Num(hp - 1);
                 }
                 Res::Undef
@@ -614,7 +614,10 @@ impl Battle {
             (VolKind::Healblock, Ev::BeforeMove | Ev::ModifyMove) => {
                 if self.event_move_flags() & F_HEAL != 0 {
                     // `cant|pokemon|move: Heal Block|Move`
-                    self.show_attempted(Some(holder));
+                    if self.event_move().is_none_or(|mi| !matches!(self.am[mi as usize].source_effect, Eff::Ability(_)))
+                    {
+                        self.show_attempted(Some(holder));
+                    }
                     return FALSE;
                 }
                 Res::Undef

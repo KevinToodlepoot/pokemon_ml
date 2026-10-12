@@ -144,6 +144,7 @@ struct Spot {
     reordered: Option<usize>,
     /// A Speed Swap has been used while it has stood here: its Speed may not be its own.
     swap_seen: bool,
+    genuine_form: bool,
     /// Its move this turn may not be the one it chose: an Encore came first, as of this many moves begun.
     overridden: Option<usize>,
     /// Its move went ahead of its bracket, and said so (Quick Claw, Quick Draw, Custap Berry).
@@ -199,6 +200,7 @@ impl Spot {
             begun: 0,
             reordered: None,
             swap_seen: false,
+            genuine_form: false,
             overridden: None,
             quick: false,
             lost_item: false,
@@ -465,6 +467,7 @@ pub struct Follower {
     mover: Option<Mover>,
     /// The move in the line just read, if its user's Choice item cannot have let it begin.
     refusable: Option<Refusal>,
+    animation_pp: Option<(usize, bool, u16, u8, bool)>,
     /// The moves chosen with the last reply, by team index, and where each was aimed.
     chosen: Vec<(usize, u16, i8)>,
     /// The Pokémon of its own that the last reply sent in, by position: one that comes in
@@ -673,6 +676,7 @@ impl Follower {
             items: Vec::new(),
             mover: None,
             refusable: None,
+            animation_pp: None,
             chosen: Vec::new(),
             sent: [None; ACTIVE],
             megaed: [false; 2],
@@ -883,7 +887,9 @@ impl Follower {
                 let (mine, beside) = (&self.spots[opp][pos], &self.spots[opp][1 - pos]);
                 let later = mine.stay > beside.stay;
                 // (A Pokémon in disguise cannot Transform: one that has is the Pokémon itself.)
-                if here.transformed != other.transformed {
+                if mine.genuine_form != beside.genuine_form {
+                    beside.genuine_form
+                } else if here.transformed != other.transformed {
                     other.transformed
                 } else if here.rec.suspect != other.rec.suspect {
                     here.rec.suspect
@@ -919,6 +925,7 @@ impl Follower {
             let begins = match kind {
                 "move" => queued_move(arg(3), from),
                 "cant" => !arg(3).starts_with("ability: "),
+                "-damage" if from == "confusion" => true,
                 _ => false,
             };
             if begins {
@@ -1006,6 +1013,15 @@ impl Follower {
         let opp = 1 - self.side;
         let were: [(u32, usize); ACTIVE] =
             std::array::from_fn(|pos| (self.spots[opp][pos].stay, self.their_index(pos)));
+        if kind == "-formechange"
+            && let Some((s, p)) = who
+            && let Some(species) = species_id(&to_id(arg(3).split(',').next().unwrap_or("")))
+            && self.reader.sides[s].active[p].as_ref().is_some_and(|l| l.species != species)
+        {
+            // Illusion never changes its disguise's form. A visibly changed
+            // form identifies the genuine Pokémon when two share an alias.
+            self.spots[s][p].genuine_form = true;
+        }
         self.reader.line(line)?;
         let after = held(self);
         self.track(kind, &parts, from)?;
@@ -1032,8 +1048,13 @@ impl Follower {
                 begun.seen.iter_mut().for_each(|seen| renumber(&mut seen.r));
             }
             for (_, event) in &mut self.items {
-                if let Event::Switch { r } = event {
-                    renumber(r);
+                match event {
+                    Event::Switch { r } => renumber(r),
+                    Event::Swap { first, second } => {
+                        renumber(first);
+                        renumber(second);
+                    }
+                    _ => {}
                 }
             }
             self.renumbered.push(moved);
@@ -1204,11 +1225,6 @@ impl Follower {
         }
         // Promotion is consumed by that one action, even when it cannot move.
         self.rounds.clear();
-        if named == mv::SPEEDSWAP {
-            for (s, p) in (0..2).flat_map(|s| (0..ACTIVE).map(move |p| (s, p))) {
-                self.spots[s][p].swap_seen |= self.present(s, p);
-            }
-        }
         let spot = &mut self.spots[side][pos];
         self.begun.push(Begun {
             side,
@@ -1259,11 +1275,35 @@ impl Follower {
         if from.contains("Baton Pass") {
             fresh.boosts = old.boosts;
             fresh.vols = old.vols.iter().copied().filter(|v| !v.kind.data().no_copy).collect();
+            if team.active[pos].as_ref().is_some_and(|l| {
+                l.rec.ability != UNKNOWN && ABILITIES[l.rec.ability as usize].flags & AF_CANTSUPPRESS != 0
+            }) {
+                fresh.remove(VolKind::Gastroacid);
+            }
         } else if from.contains("Shed Tail") {
             fresh.vols = old.vols.iter().copied().filter(|v| v.kind == VolKind::Substitute).collect();
         }
         let left = old.stay;
         self.spots[side][pos] = fresh;
+        // Suppression copied by Baton Pass is removed for an unsuppressible
+        // ability, even when the opponent's ability is known only from sheets.
+        if from.contains("Baton Pass") {
+            let rec = self.reader.live_record(side, pos);
+            let ability = if side == self.side {
+                self.req.as_ref().and_then(|r| r.mons.iter().find(|m| m.name == name)).map(|m| m.ability)
+            } else {
+                rec.and_then(|r| {
+                    if r.ability != UNKNOWN {
+                        Some(r.ability)
+                    } else {
+                        self.reader.sides[side].roster.get(r.listed as usize).filter(|_| self.open()).map(|l| l.ability)
+                    }
+                })
+            };
+            if ability.is_some_and(|a| a != UNKNOWN && ABILITIES[a as usize].flags & AF_CANTSUPPRESS != 0) {
+                self.spots[side][pos].remove(VolKind::Gastroacid);
+            }
+        }
         // What the one that left was keeping up on others goes with it.
         for spot in self.spots.iter_mut().flatten() {
             spot.vols.retain(|v| v.source == 0 || v.source != left);
@@ -1526,6 +1566,7 @@ impl Follower {
                 }
             }
             "move" => {
+                self.animation_pp = None;
                 let Some(used) = move_id(&to_id(arg(3))) else {
                     return Ok(());
                 };
@@ -1702,6 +1743,10 @@ impl Follower {
                             let taken = (base + pressed).min(slot.1);
                             slot.1 -= taken;
                             paid = Some((idx, copied, paying, taken, was_unknown));
+                            if fourth.is_none() && VolKind::named(data.id).is_some_and(|k| CHARGING.contains(&k)) {
+                                self.animation_pp =
+                                    Some((idx, copied, paying, taken.saturating_sub(base), was_unknown));
+                            }
                         }
                     }
                 }
@@ -1983,6 +2028,11 @@ impl Follower {
             "-activate" => {
                 let effect = arg(3);
                 let name = effect_id(effect);
+                if effect.starts_with("ability: ")
+                    && ability_id(&name).is_some_and(|a| ABILITIES[a as usize].flags & AF_CANTSUPPRESS != 0)
+                {
+                    self.spot(side, pos).remove(VolKind::Gastroacid);
+                }
                 let begun = self.begun.len();
                 if effect == "trapped" {
                     // Kept there by whoever is moving; or, if that is itself (Jaw Lock holds
@@ -2002,6 +2052,13 @@ impl Follower {
                     self.spot(side, pos).add(VolKind::Partiallytrapped, Ends::Said);
                 } else if matches!(name.as_str(), "lockon" | "mindreader") {
                     self.spot(side, pos).add(VolKind::Lockon, Ends::After(2));
+                } else if name == "speedswap" {
+                    if let Some((s, p)) = of.or(fourth) {
+                        self.items
+                            .push((begun, Event::Swap { first: self.mon_ref(side, pos), second: self.mon_ref(s, p) }));
+                        self.spots[side][pos].swap_seen = true;
+                        self.spots[s][p].swap_seen = true;
+                    }
                 } else if matches!(name.as_str(), "afteryou" | "quash") {
                     let spot = self.spot(side, pos);
                     spot.reordered = Some(spot.reordered.map_or(begun, |t| t.min(begun)));
@@ -2122,6 +2179,9 @@ impl Follower {
                 self.spot(side, pos).add(VolKind::Mustrecharge, Ends::Said);
             }
             "-ability" => {
+                if ability_id(&to_id(arg(3))).is_some_and(|a| ABILITIES[a as usize].flags & AF_CANTSUPPRESS != 0) {
+                    self.spot(side, pos).remove(VolKind::Gastroacid);
+                }
                 let spot = self.spot(side, pos);
                 spot.own_abilities = None;
                 spot.pressing = to_id(arg(3)) == "pressure";
@@ -2141,6 +2201,28 @@ impl Follower {
                 }
             }
             "-anim" => {
+                // An instant charging move's animation publicly resolves a
+                // target omitted by its move line (including Encore rerolls).
+                if side == self.side
+                    && let Some((idx, copied, paying, old, was_unknown)) = self.animation_pp.take()
+                    && let Some((s, p)) = fourth
+                {
+                    let pressed = (s != side
+                        && self.present(s, p)
+                        && self.spots[s][p].pressing
+                        && !self.spots[s][p].has(VolKind::Gastroacid)
+                        && self.reader.live_record(s, p).is_some_and(|rec| rec.ability == ab::PRESSURE))
+                        as u8;
+                    if let Some(own) = self.own.get_mut(idx) {
+                        let known = if copied { &mut own.copied } else { &mut own.pp };
+                        if let Some(slot) = known.iter_mut().find(|v| v.0 == paying) {
+                            slot.1 = (slot.1 + old).min(slot.2).saturating_sub(pressed);
+                        }
+                        if !was_unknown {
+                            own.unknown_pp[copied as usize].retain(|v| *v != paying);
+                        }
+                    }
+                }
                 // The move goes off at once after all (Power Herb, Solar Beam in the sun).
                 self.spot(side, pos).vols.retain(|v| v.kind != VolKind::Twoturnmove && !CHARGING.contains(&v.kind));
             }
@@ -2155,11 +2237,7 @@ impl Follower {
                 }
             }
             "-damage" if from == "confusion" => {
-                if self.spots[side][pos].instructed {
-                    // Showdown emits no move/cant for this failed repeat. Consume it
-                    // independently so the later chosen action remains in normal order.
-                    self.begin(side, pos, NO_MOVE, Some(false));
-                }
+                // The action was registered before the self-damage changed HP.
                 // It hurt itself in place of moving: a move it was charging is off.
                 self.spot(side, pos).vols.retain(|v| {
                     v.ends != Ends::Move
@@ -2526,6 +2604,13 @@ impl Follower {
             (m.hp, m.status, m.fainted) = (mon.hp, mon.status, mon.fainted);
             m.faint_queued = mon.fainted;
             (m.ability, m.base_ability, m.item) = (mon.ability, mon.base_ability, mon.item);
+            if k < ACTIVE
+                && self.spots[me][k].ability_touched
+                && let Some(live) = live
+                && live.rec.ability != UNKNOWN
+            {
+                m.ability = live.rec.ability;
+            }
             let stone = ITEMS[mon.item as usize].mega.iter().find(|&&(from, _)| from == set.species);
             m.can_mega = match stone {
                 Some(&(_, mega)) if !megaed => mega,
@@ -2749,14 +2834,14 @@ impl Follower {
 
     /// Where within its bracket the follower's own Pokémon's move went this
     /// turn: settled when it was chosen, by its item or ability.
-    fn own_frac(&self, begun: &Begun, chosen: u16) -> Option<i8> {
+    fn own_frac(&self, begun: &Begun, chosen: u16, at: usize) -> Option<i8> {
         let mut b = *self.turn_start.as_ref()?;
-        if begun.named == NO_MOVE || !b.mon(begun.r).is_active {
+        if !b.mon(begun.r).is_active {
             return None;
         }
         let a = b.resolve_move(begun.r, chosen, 0);
         // A Quick Claw is rolled for, and says so when it works; what always holds a move back does not.
-        Some(if begun.quick { 1 } else { a.frac.min(0) })
+        Some(if begun.quick && begun.overridden.is_none_or(|t| t > at) { 1 } else { a.frac.min(0) })
     }
 
     /// A move as it stood in the queue when the `at`th of this stretch began.
@@ -2766,7 +2851,7 @@ impl Follower {
             r: s.r,
             order: 200,
             priority: 0,
-            frac: s.quick as i8,
+            frac: (s.quick && s.overridden.is_none_or(|t| t > at)) as i8,
             speed: 0,
             move_id: if s.named == NO_MOVE { 0 } else { s.named },
             encored: s.encored,
@@ -2795,7 +2880,7 @@ impl Follower {
                 now.and_then(|n| n.agreed(|a| speed::own_speed(&n.seen, a, n.item, n.lost_item, n.stat, &then.field)));
             let priority =
                 now.and_then(|n| n.agreed(|a| speed::own_priority(&n.seen, a, &then.field, q.move_id, n.grounded)));
-            match (speed, priority, self.own_frac(s, q.move_id)) {
+            match (speed, priority, self.own_frac(s, q.move_id, at)) {
                 (Some(speed), Some(priority), Some(frac)) => {
                     (q.speed, q.priority, q.frac) = (speed, priority + frac as i32, frac)
                 }

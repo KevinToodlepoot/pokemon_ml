@@ -108,13 +108,15 @@ It never updates Git automatically or overwrites an existing run.
 
 ## Targeted observation regressions
 
-To run 1,000 new battles around the retained Illusion, residual-weather,
+To run 2,000 new battles around the retained Illusion, residual-weather,
 Feint/guard, waking/Attract, Court Change, reflected healing, Instruct/Quick Claw,
 Focus Punch, Future Sight/Red Card recoil, Ripen/Leppa and instructed sleep, type, Pressure, item/ability-swap, Mental Herb, trapping and called-move
-issues, covering each theme with both closed and open sheets:
+issues, plus confusion/Instruct, Mega/Pressure, solar animations, Toxic replacements,
+Hunger Switch/Illusion, called Speed Swap, Baton suppression and Encore/Quick Claw.
+This covers all 27 themes with both closed and open sheets:
 
 ```bash
-python3 scripts/compare-showdown.py --battles 1000 --batch-size 25 \
+python3 scripts/compare-showdown.py --battles 2000 --batch-size 25 \
   --profile regressions --seed 1648207359 --workers 4 \
   --keep-passing --out runs/observation-regressions-1648207359
 ```

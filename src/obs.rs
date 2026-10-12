@@ -280,6 +280,16 @@ impl Timers {
     }
 }
 
+// A replacement can be on the field before its queued SwitchIn callback
+// runs. Toxic's previous-stay counter is not public state for the new stay.
+fn public_toxic_stage(b: &Battle, r: MonRef) -> u8 {
+    if b.queue.as_slice().iter().any(|a| a.kind == crate::state::ActKind::RunSwitch && a.mon == Some(r)) {
+        0
+    } else {
+        b.mon(r).tox_stage
+    }
+}
+
 // ------------------------------------------------------------------ writing
 
 struct W<'a> {
@@ -615,7 +625,11 @@ pub fn observe_battle(
         // (A status a fainted Pokémon had is neither here nor there.)
         tok.status = if m.fainted { Status::None } else { m.status };
         // (The count starts over whenever it comes in.)
-        tok.tox = if m.is_active && m.status == Status::Tox { m.tox_stage } else { 0 };
+        tok.tox = if m.is_active && m.status == Status::Tox {
+            public_toxic_stage(b, MonRef { side: view as u8, idx: idx as u8 })
+        } else {
+            0
+        };
         // Its stats as its player is told them: its own, for the forme it is in. What a
         // battle does to them is not said (after Transform or Power Split they are partly
         // another Pokémon's).
@@ -706,7 +720,7 @@ pub fn observe_battle(
                 tok.species = id(if m.illusion != 0 { rec.species } else { m.species });
                 let (hp, _, status) = b.shown_condition(r);
                 (tok.hp, tok.status, tok.active) = (hp as f32 / 100.0, status, true);
-                tok.tox = if status == Status::Tox { m.tox_stage } else { 0 };
+                tok.tox = if status == Status::Tox { public_toxic_stage(b, r) } else { 0 };
                 tok.transformed = m.transformed;
             }
             None => (tok.hp, tok.status, tok.fainted) = (rec.hp as f32 / 100.0, rec.status, rec.fainted),
@@ -797,6 +811,10 @@ pub fn observe_battle(
             if !HIDDEN_VOLATILES.contains(&v.kind) {
                 w.buf[w.at + v.kind as usize] = 1.0;
             }
+        }
+        if !own && m.live.copied_gastro && m.live.ability == crate::shown::UNKNOWN && !b.open_team_sheets {
+            // Suppression's silent removal by a hidden ability is not public.
+            w.buf[w.at + VolKind::Gastroacid as usize] = 1.0;
         }
         w.skip(N_VOLATILES);
         w.put(vols.get(VolKind::Perishsong).map_or(0.0, |v| v.duration as f32 / 3.0));
