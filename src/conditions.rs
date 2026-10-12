@@ -1908,8 +1908,12 @@ impl Battle {
                 }
                 self.set_active_move(Some(hit), Some(source), Some(target));
                 self.try_spread_move_hit(&[target], source, hit);
-                if self.mon(source).is_active && self.has_item(source, it::LIFEORB) {
-                    // The orb is asked directly, as "the move" itself: it takes its tenth, hit or miss.
+                if self.mon(source).is_active
+                    && !self.mon(source).force_switch_flag
+                    && self.has_item(source, it::LIFEORB)
+                {
+                    // Asked directly, as "the move" itself, but its callback still
+                    // skips recoil when Red Card has already scheduled a drag-out.
                     let d = div1(self.mon(source).max_hp() as u32, 10);
                     self.damage(d, Some(source), Some(source), Eff::Item(it::LIFEORB));
                 }

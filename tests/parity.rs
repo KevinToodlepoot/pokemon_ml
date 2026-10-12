@@ -14,6 +14,24 @@ fn fixture() -> Vec<Case> {
 }
 
 #[test]
+fn future_sight_red_card_and_life_orb_match_showdown() {
+    let cases: Vec<Case> = include_str!("fixtures/future_sight_ripen_instruct_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 3);
+    let mut decisions = 0;
+    for case in &cases {
+        match check_case_with(case, Rebuild::ByHand) {
+            Outcome::Pass(n) => decisions += n,
+            Outcome::Fail(why) => panic!("case {}: {}", case.id, why.join("; ")),
+            Outcome::Unsupported(why) => panic!("case {} unsupported: {}", case.id, why),
+        }
+    }
+    assert_eq!(decisions, 157);
+}
+
+#[test]
 fn recorded_battles_match_showdown() {
     let cases = fixture();
     assert!(cases.len() >= 10);

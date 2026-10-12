@@ -933,10 +933,16 @@ impl Follower {
                 // A sleeping Pokémon that goes on to use Sleep Talk has both lines for the one move.
                 let named = named.unwrap_or(NO_MOVE);
                 let stay = self.spots[side][pos].stay;
+                // An instructed sleeping action may continue with Snore/Sleep
+                // Talk. A subsequent wake instead starts the original queued
+                // action, rather than completing the failed instruction.
+                let instruction_continues = self.roused.is_none()
+                    && matches!(named, mv::SNORE | mv::SLEEPTALK)
+                    && named == self.spots[side][pos].last_move;
                 match self.begun.last_mut() {
                     Some(last)
                         if last.asleep
-                            && !last.instructed
+                            && (!last.instructed || instruction_continues)
                             && last.stay == stay
                             && (kind == "move" || (kind == "cant" && named != NO_MOVE && arg(3) != "slp")) =>
                     {
@@ -2042,7 +2048,14 @@ impl Follower {
                     self.spot(side, pos).grounded();
                 } else if matches!(name.as_str(), "spite" | "eeriespell" | "leppaberry") && side == self.side {
                     // PP taken from one of its moves, or given back.
-                    let n: u8 = arg(5).parse().unwrap_or(if name == "leppaberry" { 10 } else { 0 });
+                    let restored = if self.reader.live_record(side, pos).is_some_and(|rec| rec.ability == ab::RIPEN)
+                        && !self.spots[side][pos].has(VolKind::Gastroacid)
+                    {
+                        20
+                    } else {
+                        10
+                    };
+                    let n: u8 = arg(5).parse().unwrap_or(if name == "leppaberry" { restored } else { 0 });
                     if let (Some(id), Some(own)) = (move_id(&to_id(arg(4))), self.own.get_mut(self.own_at[pos])) {
                         let known = if own.copied.is_empty() { &mut own.pp } else { &mut own.copied };
                         if let Some(slot) = known.iter_mut().find(|s| s.0 == id) {

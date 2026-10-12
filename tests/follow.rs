@@ -23,6 +23,49 @@ fn cases() -> Vec<FollowCase> {
 }
 
 #[test]
+fn future_sight_ripen_and_instruct_failures_have_matching_observations() {
+    let cases: Vec<FollowCase> = include_str!("fixtures/future_sight_ripen_instruct_regressions.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(cases.len(), 3);
+    let mut tally = FollowTally::default();
+    for case in &cases {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
+        let steps = match case.id {
+            699 => 3,
+            591 => 42,
+            746 => 17,
+            _ => unreachable!(),
+        };
+        let side = if case.id == 699 { 1 } else { 0 };
+        let mut me = follower_for(case, side);
+        let opp = &case.rosters[1 - side];
+        me.trust_item_clause(
+            opp.iter()
+                .enumerate()
+                .all(|(j, a)| a.item.as_deref().is_none_or(str::is_empty) || opp[..j].iter().all(|b| b.item != a.item)),
+        );
+        me.lines(&Follower::own_lines(side, &case.initial.log)).unwrap();
+        me.request(&case.initial.requests[side].to_string()).unwrap();
+        for step in &case.steps[..steps] {
+            me.lines(&Follower::own_lines(side, &step.after.log)).unwrap();
+            me.request(&step.after.requests[side].to_string()).unwrap();
+        }
+        let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+        me.observe(&mut f, &mut i, &mut mask).unwrap();
+        match case.id {
+            699 => assert_eq!(f[227], 1.0, "Future Sight's caster retains full HP when Red Card cancels recoil"),
+            591 => assert_eq!(f[366], 1.0, "Ripen restores twenty PP, capped at Guard Swap's maximum"),
+            746 => assert_eq!(f[475], 107.0 / 200.0, "instructed Snore does not consume the original queued action"),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(tally.observations, 320);
+    assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
+}
+
+#[test]
 fn local_200000_failures_have_matching_observations() {
     let cases: Vec<FollowCase> = include_str!("fixtures/local_200000_regressions.jsonl")
         .lines()

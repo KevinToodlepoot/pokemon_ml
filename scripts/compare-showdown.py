@@ -30,9 +30,12 @@ THEMES = [
 
 
 # New uploaded failures plus earlier observation regressions. With 50-battle
-# batches, 1,500 battles exercises each theme in both sheet modes.
+# batches, 1,800 battles exercises each theme in both sheet modes.
 # Use 25-battle batches for a 1,000-battle run covering every theme in both modes.
 REGRESSION_THEMES = [
+    ('future-sight-recoil', ['--species', 'slowking,slowbro', '--moves', 'futuresight,protect,trick,uturn,psychicnoise', '--moves-per', '3', '--items', 'lifeorb,redcard,ejectbutton,leftovers']),
+    ('ripen-leppa', ['--abilities', 'ripen,pressure,innerfocus', '--items', 'leppaberry,mentalherb,choicescarf', '--moves', 'guardswap,protect,encore,spite,skillswap,trick', '--moves-per', '3']),
+    ('instruct-sleep', ['--species', 'oranguru,alcremie', '--moves', 'instruct,snore,sleeptalk,rest,encore,round', '--moves-per', '3']),
     ('waking-attract', ['--moves', 'rest,sleeptalk,attract,hypnosis,protect,dig', '--moves-per', '3', '--abilities', 'quickfeet,innerfocus']),
     ('court-change', ['--species', 'cinderace', '--moves', 'courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard', '--moves-per', '3', '--items', 'lightclay,leftovers']),
     ('reflected-healing', ['--moves', 'healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect', '--moves-per', '3', '--abilities', 'magicbounce,innerfocus']),
