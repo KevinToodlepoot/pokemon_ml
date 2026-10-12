@@ -110,7 +110,7 @@ It never updates Git automatically or overwrites an existing run.
 
 To run 1,000 new battles around the retained Illusion, residual-weather,
 Feint/guard, waking/Attract, Court Change, reflected healing, Instruct/Quick Claw,
-Focus Punch, type, Pressure, item/ability-swap, Mental Herb, trapping and called-move
+Focus Punch, Future Sight/Red Card recoil, Ripen/Leppa and instructed sleep, type, Pressure, item/ability-swap, Mental Herb, trapping and called-move
 issues, covering each theme with both closed and open sheets:
 
 ```bash
@@ -122,3 +122,17 @@ python3 scripts/compare-showdown.py --battles 1000 --batch-size 25 \
 These are deliberately unusual stress teams, not a competitive training pool.
 The exact uploaded failures are also retained in the follower integration tests;
 the fresh random cases supplement those deterministic regressions.
+
+## Fresh 300,000-battle run
+
+After merging the Future Sight/Ripen/Instruct fixes:
+
+```bash
+git fetch origin
+git switch main
+git pull --ff-only origin main
+python3 scripts/compare-showdown.py --battles 300000 --seed 3184072951 --workers 4 --out ~/showdown-runs/showdown-3184072951
+```
+
+This uses a new base seed, builds current sources and preserves failure recordings
+and provenance using the existing mixed profile. Upload its `differences.tar.gz`.

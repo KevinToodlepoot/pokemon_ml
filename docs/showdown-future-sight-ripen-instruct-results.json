@@ -1,0 +1,928 @@
+{
+  "uploaded_summary": {
+    "completed_batches": 200,
+    "compared_battles": 200000,
+    "failing_battles": 3,
+    "elapsed_seconds": 2428,
+    "observations_actionable_differences": 46,
+    "observations_decisions": 4746903,
+    "observations_differences": 50,
+    "observations_failed": 0,
+    "observations_followed": 200000,
+    "observations_observations": 9829639,
+    "observations_passed_over": 64167,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 4746876,
+    "mechanics_diverged": 1,
+    "mechanics_matched": 199999,
+    "mechanics_unsupported": 0
+  },
+  "uploaded_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-12T01:44:38Z",
+    "engine_commit": "94bdae133ceb1cdcdcb1d3e5ea2beb85a683a30d",
+    "working_tree": "?? .DS_Store\n?? oracle/.DS_Store\n?? python/.DS_Store\n?? teams/",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.8.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "2865102305be30a1b16db363f41f67010cbe9985e7998d930a7d8ea2505a4b5a",
+      "difftest": "0069816de4721850af1d3992d962132285682f2eed104614c4d5105aff9b42ec"
+    },
+    "build_requested": true,
+    "command": [
+      "/Users/matiasbronner/Desktop/pokemon_ml_git/scripts/compare-showdown.py",
+      "--battles",
+      "200000",
+      "--seed",
+      "3726198057",
+      "--workers",
+      "4",
+      "--out",
+      "/Users/matiasbronner/showdown-runs/showdown-3726198057"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-12T02:25:06Z",
+    "generator_unchanged": true
+  },
+  "uploaded_failures": [
+    {
+      "key": "0029-trapping-battle-699",
+      "generation": {
+        "seed": 3754198141,
+        "original_id": 717,
+        "options": [
+          "--moves",
+          "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+          "--moves-per",
+          "3",
+          "--items",
+          "ejectbutton,redcard,bindingband,leftovers"
+        ]
+      },
+      "battle_seed": [
+        63631,
+        15389,
+        51642,
+        18119
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 45,
+        "actionable_observations": 53,
+        "decisions": 27,
+        "differences": 48,
+        "errors": [],
+        "first_differences": [
+          "battle 699 step 3 side 0: their mon: hp: the game has 0.9 (at 383), the follower 1"
+        ],
+        "id": 699,
+        "observations": 56,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 0,
+        "errors": [
+          "state differs at decision 2 (turn 3), choices p1 [move 4 2, move 3 -1] p2 [switch 4, move 3 1]",
+          "p2 position 4 (slowking) hp: engine 174, Showdown 193",
+          "(to see where the RNG streams part: record with `gen_cases.js --trace` and build with `--features trace`)"
+        ],
+        "id": 699,
+        "status": "diverged"
+      }
+    },
+    {
+      "key": "0127-general-battle-591",
+      "generation": {
+        "seed": 3852198435,
+        "original_id": 601,
+        "options": []
+      },
+      "battle_seed": [
+        57809,
+        41482,
+        59343,
+        24613
+      ],
+      "open_sheets": false,
+      "observations": {
+        "actionable_differences": 0,
+        "actionable_observations": 171,
+        "decisions": 90,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 591 step 42 side 0: own mon: pp: the game has 1 (at 366), the follower 0.8333333"
+        ],
+        "id": 591,
+        "observations": 182,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 90,
+        "errors": [],
+        "id": 591,
+        "status": "matched"
+      }
+    },
+    {
+      "key": "0160-pressure-battle-746",
+      "generation": {
+        "seed": 3885198534,
+        "original_id": 745,
+        "options": [
+          "--abilities",
+          "pressure,innerfocus",
+          "--moves",
+          "encore,expandingforce,curse,comeuppance,metalburst",
+          "--open-sheets"
+        ]
+      },
+      "battle_seed": [
+        36713,
+        65391,
+        24309,
+        48663
+      ],
+      "open_sheets": true,
+      "observations": {
+        "actionable_differences": 1,
+        "actionable_observations": 69,
+        "decisions": 40,
+        "differences": 1,
+        "errors": [],
+        "first_differences": [
+          "battle 746 step 17 side 0: their mon: speed high: the game has 0.535 (at 475), the follower 0.55"
+        ],
+        "id": 746,
+        "observations": 82,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      "mechanics": {
+        "decisions": 40,
+        "errors": [],
+        "id": 746,
+        "status": "matched"
+      }
+    }
+  ],
+  "uploaded_final_observations": {
+    "cases": [
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 53,
+        "decisions": 27,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 699,
+        "observations": 56,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 171,
+        "decisions": 90,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 591,
+        "observations": 182,
+        "passed_over": 0,
+        "status": "followed"
+      },
+      {
+        "actionable_differences": 0,
+        "actionable_observations": 69,
+        "decisions": 40,
+        "differences": 0,
+        "errors": [],
+        "first_differences": [],
+        "id": 746,
+        "observations": 82,
+        "passed_over": 0,
+        "status": "followed"
+      }
+    ],
+    "schema_version": 1,
+    "summary": {
+      "actionable_differences": 0,
+      "decisions": 157,
+      "differences": 0,
+      "failed": 0,
+      "followed": 3,
+      "observations": 320,
+      "passed_over": 0,
+      "unsupported": 0
+    }
+  },
+  "uploaded_final_mechanics": {
+    "cases": [
+      {
+        "decisions": 27,
+        "errors": [],
+        "id": 699,
+        "status": "matched"
+      },
+      {
+        "decisions": 90,
+        "errors": [],
+        "id": 591,
+        "status": "matched"
+      },
+      {
+        "decisions": 40,
+        "errors": [],
+        "id": 746,
+        "status": "matched"
+      }
+    ],
+    "schema_version": 1,
+    "summary": {
+      "decisions": 157,
+      "diverged": 0,
+      "matched": 3,
+      "unsupported": 0
+    }
+  },
+  "targeted_seed": 2075841639,
+  "targeted_manifest": [
+    {
+      "label": "0001-future-sight-recoil",
+      "seed": 2075841639,
+      "n": 25,
+      "options": [
+        "--species",
+        "slowking,slowbro",
+        "--moves",
+        "futuresight,protect,trick,uturn,psychicnoise",
+        "--moves-per",
+        "3",
+        "--items",
+        "lifeorb,redcard,ejectbutton,leftovers"
+      ]
+    },
+    {
+      "label": "0002-ripen-leppa",
+      "seed": 2076841642,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "ripen,pressure,innerfocus",
+        "--items",
+        "leppaberry,mentalherb,choicescarf",
+        "--moves",
+        "guardswap,protect,encore,spite,skillswap,trick",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0003-instruct-sleep",
+      "seed": 2077841645,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru,alcremie",
+        "--moves",
+        "instruct,snore,sleeptalk,rest,encore,round",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0004-waking-attract",
+      "seed": 2078841648,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus"
+      ]
+    },
+    {
+      "label": "0005-court-change",
+      "seed": 2079841651,
+      "n": 25,
+      "options": [
+        "--species",
+        "cinderace",
+        "--moves",
+        "courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard",
+        "--moves-per",
+        "3",
+        "--items",
+        "lightclay,leftovers"
+      ]
+    },
+    {
+      "label": "0006-reflected-healing",
+      "seed": 2080841654,
+      "n": 25,
+      "options": [
+        "--moves",
+        "healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "magicbounce,innerfocus"
+      ]
+    },
+    {
+      "label": "0007-instruct-quick-claw",
+      "seed": 2081841657,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru",
+        "--moves",
+        "instruct,rockslide,earthquake,drainingkiss,protect",
+        "--moves-per",
+        "3",
+        "--items",
+        "quickclaw,leftovers"
+      ]
+    },
+    {
+      "label": "0008-illusion-focus-punch",
+      "seed": 2082841660,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,machamp",
+        "--moves",
+        "focuspunch,substitute,uturn,headsmash,protect",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0009-illusion-form",
+      "seed": 2083841663,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0010-illusion-items",
+      "seed": 2084841666,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers"
+      ]
+    },
+    {
+      "label": "0011-residual-weather",
+      "seed": 2085841669,
+      "n": 25,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0012-broken-guards",
+      "seed": 2086841672,
+      "n": 25,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers"
+      ]
+    },
+    {
+      "label": "0013-types",
+      "seed": 2087841675,
+      "n": 25,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0014-pressure",
+      "seed": 2088841678,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst"
+      ]
+    },
+    {
+      "label": "0015-choice-swap",
+      "seed": 2089841681,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct"
+      ]
+    },
+    {
+      "label": "0016-mental-herb",
+      "seed": 2090841684,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0017-trapping",
+      "seed": 2091841687,
+      "n": 25,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers"
+      ]
+    },
+    {
+      "label": "0018-called-moves",
+      "seed": 2092841690,
+      "n": 25,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster"
+      ]
+    },
+    {
+      "label": "0019-future-sight-recoil",
+      "seed": 2093841693,
+      "n": 25,
+      "options": [
+        "--species",
+        "slowking,slowbro",
+        "--moves",
+        "futuresight,protect,trick,uturn,psychicnoise",
+        "--moves-per",
+        "3",
+        "--items",
+        "lifeorb,redcard,ejectbutton,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0020-ripen-leppa",
+      "seed": 2094841696,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "ripen,pressure,innerfocus",
+        "--items",
+        "leppaberry,mentalherb,choicescarf",
+        "--moves",
+        "guardswap,protect,encore,spite,skillswap,trick",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0021-instruct-sleep",
+      "seed": 2095841699,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru,alcremie",
+        "--moves",
+        "instruct,snore,sleeptalk,rest,encore,round",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0022-waking-attract",
+      "seed": 2096841702,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0023-court-change",
+      "seed": 2097841705,
+      "n": 25,
+      "options": [
+        "--species",
+        "cinderace",
+        "--moves",
+        "courtchange,reflect,lightscreen,auroraveil,tailwind,quickguard,wideguard",
+        "--moves-per",
+        "3",
+        "--items",
+        "lightclay,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0024-reflected-healing",
+      "seed": 2098841708,
+      "n": 25,
+      "options": [
+        "--moves",
+        "healpulse,psychicnoise,solarblade,solarbeam,fly,dig,protect",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "magicbounce,innerfocus",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0025-instruct-quick-claw",
+      "seed": 2099841711,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru",
+        "--moves",
+        "instruct,rockslide,earthquake,drainingkiss,protect",
+        "--moves-per",
+        "3",
+        "--items",
+        "quickclaw,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0026-illusion-focus-punch",
+      "seed": 2100841714,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,machamp",
+        "--moves",
+        "focuspunch,substitute,uturn,headsmash,protect",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0027-illusion-form",
+      "seed": 2101841717,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "uturn,kingsshield,willowisp,toxic,bounce,ironhead",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0028-illusion-items",
+      "seed": 2102841720,
+      "n": 25,
+      "options": [
+        "--species",
+        "zoroark,zoroarkhisui,aegislash",
+        "--moves",
+        "trick,switcheroo,uturn,protect,scaryface",
+        "--moves-per",
+        "3",
+        "--items",
+        "choicescarf,ironball,focusband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0029-residual-weather",
+      "seed": 2103841723,
+      "n": 25,
+      "options": [
+        "--species",
+        "politoed,pelipper,passimian",
+        "--abilities",
+        "receiver,drizzle,drought,innerfocus",
+        "--moves",
+        "toxic,willowisp,protect,raindance,sunnyday",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0030-broken-guards",
+      "seed": 2104841726,
+      "n": 25,
+      "options": [
+        "--species",
+        "sirfetchd,golisopod,arcanine",
+        "--abilities",
+        "emergencyexit,innerfocus",
+        "--moves",
+        "feint,quickguard,wideguard,protect,uturn",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0031-types",
+      "seed": 2105841729,
+      "n": 25,
+      "options": [
+        "--moves",
+        "reflecttype,soak,trickortreat,forestscurse,burnup,doubleshock,roost",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0032-pressure",
+      "seed": 2106841732,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "pressure,innerfocus",
+        "--moves",
+        "encore,expandingforce,curse,comeuppance,metalburst",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0033-choice-swap",
+      "seed": 2107841735,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "klutz,innerfocus,pressure",
+        "--items",
+        "choicescarf,mentalherb,leftovers",
+        "--moves",
+        "skillswap,encore,magicroom,trick,switcheroo,instruct",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0034-mental-herb",
+      "seed": 2108841738,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "innerfocus,pressure,klutz",
+        "--items",
+        "mentalherb,choicescarf,leftovers",
+        "--moves",
+        "encore,taunt,disable,torment,throatchop,imprison",
+        "--moves-per",
+        "3",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0035-trapping",
+      "seed": 2109841741,
+      "n": 25,
+      "options": [
+        "--moves",
+        "octolock,bind,wrap,uturn,voltswitch,quash,afteryou,round",
+        "--moves-per",
+        "3",
+        "--items",
+        "ejectbutton,redcard,bindingband,leftovers",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0036-called-moves",
+      "seed": 2110841744,
+      "n": 25,
+      "options": [
+        "--moves",
+        "instruct,copycat,sleeptalk,encore,transform,uproar",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "pressure,innerfocus,prankster",
+        "--open-sheets"
+      ]
+    },
+    {
+      "label": "0037-future-sight-recoil",
+      "seed": 2111841747,
+      "n": 25,
+      "options": [
+        "--species",
+        "slowking,slowbro",
+        "--moves",
+        "futuresight,protect,trick,uturn,psychicnoise",
+        "--moves-per",
+        "3",
+        "--items",
+        "lifeorb,redcard,ejectbutton,leftovers"
+      ]
+    },
+    {
+      "label": "0038-ripen-leppa",
+      "seed": 2112841750,
+      "n": 25,
+      "options": [
+        "--abilities",
+        "ripen,pressure,innerfocus",
+        "--items",
+        "leppaberry,mentalherb,choicescarf",
+        "--moves",
+        "guardswap,protect,encore,spite,skillswap,trick",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0039-instruct-sleep",
+      "seed": 2113841753,
+      "n": 25,
+      "options": [
+        "--species",
+        "oranguru,alcremie",
+        "--moves",
+        "instruct,snore,sleeptalk,rest,encore,round",
+        "--moves-per",
+        "3"
+      ]
+    },
+    {
+      "label": "0040-waking-attract",
+      "seed": 2114841756,
+      "n": 25,
+      "options": [
+        "--moves",
+        "rest,sleeptalk,attract,hypnosis,protect,dig",
+        "--moves-per",
+        "3",
+        "--abilities",
+        "quickfeet,innerfocus"
+      ]
+    }
+  ],
+  "targeted_initial_candidate": {
+    "completed_batches": 40,
+    "compared_battles": 1000,
+    "failing_battles": 0,
+    "elapsed_seconds": 109,
+    "observations_actionable_differences": 0,
+    "observations_decisions": 31144,
+    "observations_differences": 0,
+    "observations_failed": 0,
+    "observations_followed": 1000,
+    "observations_observations": 63867,
+    "observations_passed_over": 421,
+    "observations_unsupported": 0,
+    "mechanics_decisions": 31144,
+    "mechanics_diverged": 0,
+    "mechanics_matched": 1000,
+    "mechanics_unsupported": 0
+  },
+  "targeted_final_observations": {
+    "actionable_differences": 0,
+    "decisions": 31144,
+    "differences": 0,
+    "failed": 0,
+    "followed": 1000,
+    "observations": 63867,
+    "passed_over": 421,
+    "unsupported": 0
+  },
+  "targeted_final_mechanics": {
+    "decisions": 31144,
+    "diverged": 0,
+    "matched": 1000,
+    "unsupported": 0
+  },
+  "log_coverage": {
+    "future_hits": 208,
+    "future_hits_with_red_card": 3,
+    "future_hits_with_life_orb_recoil": 13,
+    "leppa_activations": 21,
+    "ripen_announcements": 5,
+    "instruct_announcements": 242
+  },
+  "source_sha256": {
+    "src/follow.rs": "0c06f2bfe762bd1250634e104c3b4a529865ccccf1e7530c1fd902a980573117",
+    "src/conditions.rs": "956abb3d4295c588327ca50670ad64a717a49cd771169358426bb7d1ce43a99f",
+    "scripts/compare-showdown.py": "e1abdfa0a2d74d0138f19cac0344ae78de56bb5b3fc801d9ef1c0232f97026d5"
+  },
+  "binary_sha256": {
+    "target/release/followcheck": "601bceb674f8fcc3826d7a52dba683e5f5116919ba24790b02c3ff66c5b21bd8",
+    "target/release/difftest": "e7ccd29529210af3a1a726e314bb62086d3c73e2dc25486ba3fe3465ee2d21cb"
+  },
+  "integration_tests": {
+    "follow_passed": 15,
+    "parity_passed": 6,
+    "shown_passed": 12,
+    "speed_passed": 5,
+    "failed": 0
+  },
+  "initial_integration_regression": "Removing the instructed-sleep merge guard entirely broke existing case 150. Final guard only merges the matching sleep-usable instruction continuation and keeps a later wake as a new queued action.",
+  "large_sweep_launched": false,
+  "targeted_provenance": {
+    "schema_version": 1,
+    "started_utc": "2026-10-12T02:35:30Z",
+    "engine_commit": "94bdae133ceb1cdcdcb1d3e5ea2beb85a683a30d",
+    "working_tree": "M scripts/compare-showdown.py\n M src/conditions.rs\n M src/follow.rs\n M tests/follow.rs\n M tests/parity.rs\n?? tests/fixtures/future_sight_ripen_instruct_regressions.jsonl",
+    "showdown_commit": "ad7ca5d51c03865e6829dbec3a7875df71480fb8",
+    "showdown_working_tree": "",
+    "node_version": "v24.19.0",
+    "generator_hashes": {
+      "oracle/gen_cases.js": "b290695409d2057ada41cb21fc657071a340b31635bec97bdd4e61d0aa695da4",
+      "oracle/lib.js": "8ffe4fd4b3d21c73cabfa6b25ae68186567bed60acd4e1be1a59bbc26ac61acd",
+      "oracle/pool.json": "0e26bee959fabdfb4c645469120c12167c0287f919d0d30a311e8d7650f5f784"
+    },
+    "binaries": {
+      "followcheck": "b4537ad2f5a464a945bb9ce59573716c166d575923f2f0e07a6c72fa86c02760",
+      "difftest": "ba586398bb0f0b0b6b40ca177cb07d1e3868bd0c219e0c19da8219630c74a8a8"
+    },
+    "build_requested": true,
+    "command": [
+      "scripts/compare-showdown.py",
+      "--battles",
+      "1000",
+      "--batch-size",
+      "25",
+      "--profile",
+      "regressions",
+      "--seed",
+      "2075841639",
+      "--workers",
+      "4",
+      "--keep-passing",
+      "--out",
+      "/workspace/showdown-validation/future-ripen-instruct-2075841639"
+    ],
+    "scope": "complete stress battles; single initially brought Illusion per side; closed sheets exclude rosters with non-native Illusion",
+    "completed_utc": "2026-10-12T02:37:19Z",
+    "generator_unchanged": true
+  }
+}
