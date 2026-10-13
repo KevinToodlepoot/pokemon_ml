@@ -135,6 +135,29 @@ What to know before relying on it:
 
 How this is checked is under [How it is checked](#how-it-is-checked).
 
+A [`Game`](#training-a-bot) (Team Preview, then the battle, with what an
+observation needs next to it) is written down and taken up again the same
+way: `Game::to_state` gives a `GameState` with the two teams as registered
+(six a side, stat points included, which a `BattleState` has only for the
+Pokémon brought), whether the sheets are open, the battle, and three pieces
+of bookkeeping a player watching could keep for themselves: how many turns
+the weather, the terrain and each screen have been up (`TimerCounts`), what
+each side can tell of the other's Speed (`Speeds`, see [What the order of
+moves shows](#what-the-order-of-moves-shows)) and how far the effects with a
+hidden random length have run (`Counts`: turns asleep, move attempts while
+confused, turns of a rampage, turns under a binding move). A state written by
+hand may leave those three out, and `Game::from_state` then takes nothing to
+have been seen before the position. `tests/env.rs` checks that a game taken
+up from its state observes and plays on exactly as the original.
+
+The Python module (`pokemon_ml._engine`) has the same: `Battle.from_state` /
+`to_state` with `joint_choices`, `choose` (which runs to the next request),
+`shown`, `diff` and `reseed`; `Game(rosters, open)` / `Game.from_state` /
+`to_state` with `act`, `legal`, `observe`, `baseline`, `speed_points` and
+`counts`; `Rng`; and `without_bookkeeping`. A `VecEnv` made with
+`check_teams=False` plays a pool as it is, teams the regulation refuses
+included (any Pokémon the tables know, with any moves, ability and item).
+
 ## Legal teams and regulations
 
 What a regulation allows is data, one file per regulation in `formats/`,

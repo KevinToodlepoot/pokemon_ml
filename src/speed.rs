@@ -59,6 +59,8 @@
 
 use std::cell::{Cell, RefCell};
 
+use serde::{Deserialize, Serialize};
+
 use crate::battle::{PokemonSet, boosted, modify};
 use crate::data::*;
 use crate::format::Format;
@@ -115,7 +117,7 @@ pub fn raw_speed(species: u16, nature: usize, points: u32) -> u32 {
 }
 
 /// The ways one Pokémon's Speed can still have come about: a bit for each amount of stat points, by nature and item class.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Belief {
     bits: [[u64; CLASSES]; NATURES],
 }
@@ -695,8 +697,11 @@ fn bracket(s: &Seen, known: &Know, field: &FieldSeen, move_id: u16) -> Option<i3
 }
 
 /// What each side can tell of the other's Speed, kept from decision to
-/// decision. Part of a game's state, next to its [`Battle`].
-#[derive(Clone, Copy, Debug)]
+/// decision. Part of a game's state, next to its [`Battle`]. Everything in
+/// it is what the two sides have been shown, so it can be written down with
+/// a position (`serde`) and taken up again; the self-check flag is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Speeds {
     /// By side and registered Pokémon: what that side's opponent knows of it.
     belief: [[Belief; MAX_ROSTER]; 2],
@@ -722,6 +727,7 @@ pub struct Speeds {
     watcher: Option<u8>,
     /// Check every observation against the truth as it is used and panic on a
     /// difference: for tests. (It reads what a player is not shown.)
+    #[serde(skip)]
     pub strict: bool,
 }
 
@@ -807,6 +813,13 @@ impl Speeds {
     /// The Speed the queue would sort `side`'s Pokémon at `pos` by, as things stand.
     pub fn own(&self, side: usize, pos: usize) -> i32 {
         self.own[side][pos]
+    }
+
+    /// Brings the record up to a battle that nothing new has been seen in: a
+    /// position taken up again. Each side's own Speeds are read off the battle
+    /// as it stands, and what the record of items says is applied once more.
+    pub(crate) fn resume(&mut self, b: &Battle) {
+        self.digest(&[], b);
     }
 
     /// Takes in what the engine noted since the last decision, and the battle as it now stands.

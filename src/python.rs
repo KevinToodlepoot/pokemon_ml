@@ -9,10 +9,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::data::{ABILITIES, ITEMS, MOVES, SPECIES};
-use crate::env::{Baseline, Config, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
+use crate::env::{Baseline, Config, Game, GameState, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
 use crate::follow::Follower;
 use crate::format::{Format, ShowdownSet};
-use crate::obs::{self, OBS_F, OBS_I, Phase, Table};
+use crate::obs::{self, INFO, OBS_F, OBS_I, Phase, Table};
+use crate::position::BattleState;
+use crate::rng::Rng;
+use crate::state::{ACTIVE, Battle, Choice, Request};
 use crate::teams::{Pool, Variation};
 
 fn failed(e: crate::Error) -> PyErr {
@@ -32,8 +35,13 @@ struct PyVecEnv {
 #[pymethods]
 impl PyVecEnv {
     /// `pool` is the text of a team pool (`teams/<name>.json`, as `teampool` writes it).
+    /// `check_teams`: refuse a pool team the regulation does not allow (the
+    /// default); off, any team the engine can simulate is played as it is.
     #[new]
-    #[pyo3(signature = (pool, envs=256, seed=1, open_sheets=0.5, vary=true, max_turns=100, threads=0))]
+    #[pyo3(signature = (
+        pool, envs=256, seed=1, open_sheets=0.5, vary=true, max_turns=100, threads=0, check_teams=true
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         pool: &str,
         envs: usize,
@@ -42,10 +50,11 @@ impl PyVecEnv {
         vary: bool,
         max_turns: u16,
         threads: usize,
+        check_teams: bool,
     ) -> PyResult<Self> {
         let pool = Pool::from_json(pool).map_err(failed)?;
         let variation = if vary { Variation::default() } else { Variation::NONE };
-        let config = Config { envs, seed, open_sheets, variation, max_turns, threads };
+        let config = Config { envs, seed, open_sheets, variation, max_turns, threads, check_teams };
         Ok(PyVecEnv { env: VecEnv::new(&pool, config).map_err(failed)? })
     }
 
@@ -237,6 +246,362 @@ impl PyFollower {
     }
 }
 
+fn flat<'a, T: numpy::Element>(a: &'a mut PyReadwriteArray1<'_, T>, n: usize, what: &str) -> PyResult<&'a mut [T]> {
+    let out = a.as_slice_mut().map_err(|_| PyValueError::new_err(format!("{what} must be a contiguous array")))?;
+    if out.len() != n {
+        return Err(PyValueError::new_err(format!("{what} must hold {n} values")));
+    }
+    Ok(out)
+}
+
+fn side_index(side: usize) -> PyResult<usize> {
+    if side < 2 { Ok(side) } else { Err(PyValueError::new_err("side is 0 or 1")) }
+}
+
+fn side_choice(s: &str) -> PyResult<[Choice; ACTIVE]> {
+    Choice::parse_side(s)
+        .ok_or_else(|| PyValueError::new_err(format!("not a side's choice: {s:?} (e.g. \"move 1 2, switch 3\")")))
+}
+
+fn joint(c: [Choice; ACTIVE]) -> String {
+    format!("{}, {}", c[0].to_showdown(), c[1].to_showdown())
+}
+
+fn seed_words(seed: Vec<u16>) -> PyResult<[u16; 4]> {
+    <[u16; 4]>::try_from(seed).map_err(|_| PyValueError::new_err("a seed is four 16-bit words"))
+}
+
+fn request_name(r: Request) -> &'static str {
+    match r {
+        Request::None => "none",
+        Request::Move => "move",
+        Request::Switch => "switch",
+    }
+}
+
+/// Pokémon Showdown's random number generator (`Gen5RNG`), for driving the
+/// baseline players and drawing battle seeds from Python the way the engine does.
+#[pyclass(name = "Rng", skip_from_py_object)]
+#[derive(Clone)]
+struct PyRng {
+    inner: Rng,
+}
+
+#[pymethods]
+impl PyRng {
+    #[new]
+    #[pyo3(signature = (seed, calls=0))]
+    fn new(seed: u64, calls: u32) -> Self {
+        PyRng { inner: Rng { seed, calls } }
+    }
+
+    /// From Showdown's four 16-bit seed words.
+    #[staticmethod]
+    fn from_words(words: Vec<u16>) -> PyResult<Self> {
+        Ok(PyRng { inner: Rng::from_words(seed_words(words)?) })
+    }
+
+    #[getter]
+    fn seed(&self) -> u64 {
+        self.inner.seed
+    }
+
+    #[getter]
+    fn calls(&self) -> u32 {
+        self.inner.calls
+    }
+
+    /// The state as four 16-bit words.
+    fn words(&self) -> Vec<u16> {
+        self.inner.words().to_vec()
+    }
+
+    /// A number below `n`, drawn as `PRNG#random(n)` draws it.
+    fn below(&mut self, n: u32) -> u32 {
+        self.inner.below(n)
+    }
+}
+
+/// A battle in progress: the simulator alone, without Team Preview or the
+/// bookkeeping an observation needs (see `Game` for those). Cheap to copy.
+/// Choices are given and returned in Showdown's notation for one side,
+/// e.g. `"move 1 2, switch 3"`.
+#[pyclass(name = "Battle", skip_from_py_object)]
+#[derive(Clone)]
+struct PyBattle {
+    inner: Battle,
+}
+
+#[pymethods]
+impl PyBattle {
+    /// A battle from a position (`BattleState` JSON, as `to_state` writes it
+    /// or as written by hand). `prepared`: `None` takes the position as it
+    /// says; `False` drops its bookkeeping (after editing an exported
+    /// position); `True` trusts it.
+    #[staticmethod]
+    #[pyo3(signature = (json, prepared=None))]
+    fn from_state(json: &str, prepared: Option<bool>) -> PyResult<Self> {
+        let mut st = BattleState::from_json(json).map_err(failed)?;
+        match prepared {
+            Some(false) => st = st.without_bookkeeping(),
+            Some(true) => st.prepared = true,
+            None => {}
+        }
+        Ok(PyBattle { inner: Battle::from_state(&st).map_err(failed)? })
+    }
+
+    /// The position as JSON, bookkeeping included: `from_state` of it continues exactly as this battle would.
+    fn to_state(&self) -> String {
+        self.inner.to_state().to_json()
+    }
+
+    fn copy(&self) -> Self {
+        self.clone()
+    }
+
+    #[getter]
+    fn turn(&self) -> u16 {
+        self.inner.turn
+    }
+
+    /// "move", "switch" or "none": what the battle waits for.
+    #[getter]
+    fn request(&self) -> &'static str {
+        request_name(self.inner.request)
+    }
+
+    #[getter]
+    fn ended(&self) -> bool {
+        self.inner.ended
+    }
+
+    /// The side that won, once the battle has ended; `None` for a tie.
+    #[getter]
+    fn winner(&self) -> Option<u8> {
+        self.inner.winner
+    }
+
+    /// The random number generator's state as four 16-bit words.
+    #[getter]
+    fn seed(&self) -> Vec<u16> {
+        self.inner.rng.words().to_vec()
+    }
+
+    #[getter]
+    fn open_sheets(&self) -> bool {
+        self.inner.open_team_sheets()
+    }
+
+    /// Gives the battle a fresh random number generator from four seed words.
+    fn reseed(&mut self, words: Vec<u16>) -> PyResult<()> {
+        self.inner.rng = Rng::from_words(seed_words(words)?);
+        Ok(())
+    }
+
+    /// What one position of `side` may do now, each as `"move 1 2"`, `"switch 3"` or `"pass"`.
+    fn legal_choices(&self, side: usize, pos: usize) -> PyResult<Vec<String>> {
+        if pos >= ACTIVE {
+            return Err(PyValueError::new_err("pos is 0 or 1"));
+        }
+        Ok(self.inner.legal_choices(side_index(side)?, pos).into_iter().map(|c| c.to_showdown()).collect())
+    }
+
+    /// Every pair of choices `side` may give now, as `"move 1 2, switch 3"`.
+    fn joint_choices(&self, side: usize) -> PyResult<Vec<String>> {
+        Ok(self.inner.joint_choices(side_index(side)?).into_iter().map(joint).collect())
+    }
+
+    /// Both sides choose (two side strings), and the battle runs to the next
+    /// request or its end.
+    fn choose(&mut self, py: Python<'_>, choices: Vec<String>) -> PyResult<()> {
+        if choices.len() != 2 {
+            return Err(PyValueError::new_err("one choice string a side"));
+        }
+        let c = [side_choice(&choices[0])?, side_choice(&choices[1])?];
+        let b = &mut self.inner;
+        py.detach(|| b.choose(c)).map_err(failed)
+    }
+
+    /// What the battle has made public about `side`, as JSON (`ShownSide`).
+    fn shown(&self, side: usize) -> PyResult<String> {
+        let shown = self.inner.shown(side_index(side)?);
+        serde_json::to_string(&shown).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// The first difference between this position and another, or `None` if they are the same.
+    fn diff(&self, other: &PyBattle) -> Option<String> {
+        self.inner.position_diff(&other.inner)
+    }
+
+    /// Each of `side`'s Pokémon as (HP, max HP), in their current order (the first two on the field).
+    fn hp(&self, side: usize) -> PyResult<Vec<(u16, u16)>> {
+        let s = &self.inner.sides[side_index(side)?];
+        Ok((0..s.n as usize).map(|p| &s.team[s.order[p] as usize]).map(|m| (m.hp, m.max_hp())).collect())
+    }
+}
+
+/// One game from Team Preview on: a `Battle` with the bookkeeping an
+/// observation needs (how long conditions have been up, what each side can
+/// tell of the other's Speed, how far hidden-length effects have run).
+/// Actions are the numbers a model answers with (`pokemon_ml.env`).
+#[pyclass(name = "Game", skip_from_py_object)]
+#[derive(Clone)]
+struct PyGame {
+    inner: Game,
+}
+
+#[pymethods]
+impl PyGame {
+    /// Two teams of six (JSON, as a pool has them), at Team Preview. `open`: the players have each other's sheets.
+    #[new]
+    fn new(rosters: Vec<String>, open: bool) -> PyResult<Self> {
+        if rosters.len() != 2 {
+            return Err(PyValueError::new_err("two teams"));
+        }
+        Ok(PyGame { inner: Game::new([team_of(&rosters[0])?, team_of(&rosters[1])?], open).map_err(failed)? })
+    }
+
+    /// A game taken up from a `GameState` JSON, as `to_state` writes it (or
+    /// written by hand, with the bookkeeping left out).
+    #[staticmethod]
+    fn from_state(json: &str) -> PyResult<Self> {
+        let st = GameState::from_json(json).map_err(failed)?;
+        Ok(PyGame { inner: Game::from_state(&st).map_err(failed)? })
+    }
+
+    /// The game as `GameState` JSON: teams as registered, the position, and the bookkeeping.
+    fn to_state(&self) -> String {
+        self.inner.to_state().to_json()
+    }
+
+    fn copy(&self) -> Self {
+        self.clone()
+    }
+
+    /// "preview", "move" or "switch".
+    #[getter]
+    fn phase(&self) -> &'static str {
+        match self.inner.phase() {
+            Phase::Preview => "preview",
+            Phase::Move => "move",
+            Phase::Switch => "switch",
+        }
+    }
+
+    #[getter]
+    fn turn(&self) -> u16 {
+        self.inner.battle().map(|b| b.turn).unwrap_or(0)
+    }
+
+    #[getter]
+    fn ended(&self) -> bool {
+        self.inner.ended()
+    }
+
+    #[getter]
+    fn winner(&self) -> Option<usize> {
+        self.inner.winner()
+    }
+
+    #[getter]
+    fn open_sheets(&self) -> bool {
+        self.inner.open_team_sheets()
+    }
+
+    /// A copy of the battle, once Team Preview is over.
+    fn battle(&self) -> Option<PyBattle> {
+        self.inner.battle().map(|b| PyBattle { inner: *b })
+    }
+
+    /// Every pair of actions `side` may give now.
+    fn legal(&self, side: usize) -> PyResult<Vec<(usize, usize)>> {
+        Ok(self.inner.legal(side_index(side)?).into_iter().map(|a| (a[0], a[1])).collect())
+    }
+
+    /// The choice an action number stands for (Showdown's notation), whether or not it is legal now.
+    fn choice_of(&self, side: usize, action: usize) -> PyResult<Option<String>> {
+        Ok(self.inner.choice_of(side_index(side)?, action).map(|c| c.to_showdown()))
+    }
+
+    /// The number a choice (`"move 1 2"`, `"switch 3"`, `"pass"`) goes by.
+    fn action_of(&self, side: usize, choice: &str) -> PyResult<Option<usize>> {
+        let c = Choice::parse(choice).ok_or_else(|| PyValueError::new_err(format!("not a choice: {choice:?}")))?;
+        Ok(self.inner.action_of(side_index(side)?, c))
+    }
+
+    /// Both sides act (`[[a, b], [a, b]]`; at Team Preview only the first
+    /// number of each side counts) and `seed` (four words) seeds the battle that starts.
+    fn act(&mut self, py: Python<'_>, actions: Vec<Vec<usize>>, seed: Vec<u16>) -> PyResult<()> {
+        if actions.len() != 2 || actions.iter().any(|a| a.len() != 2) {
+            return Err(PyValueError::new_err("actions are two numbers a side"));
+        }
+        let a = [[actions[0][0], actions[0][1]], [actions[1][0], actions[1][1]]];
+        let seed = seed_words(seed)?;
+        let g = &mut self.inner;
+        py.detach(|| g.act(a, seed)).map_err(failed)
+    }
+
+    /// Writes `view`'s observation (`f`: OBS_F float32, `i`: OBS_I int16,
+    /// `mask`: OBS_M uint8) and returns how many joint actions are legal.
+    fn observe(
+        &self,
+        view: usize,
+        mut f: PyReadwriteArray1<'_, f32>,
+        mut i: PyReadwriteArray1<'_, i16>,
+        mut mask: PyReadwriteArray1<'_, u8>,
+    ) -> PyResult<usize> {
+        let view = side_index(view)?;
+        let (f, i, mask) = (flat(&mut f, OBS_F, "f")?, flat(&mut i, OBS_I, "i")?, flat(&mut mask, OBS_M, "mask")?);
+        self.inner.observe(view, f, i, mask);
+        Ok(i[OBS_I - INFO + 1] as usize)
+    }
+
+    /// What a player that needs no model ("random", "greedy" or "lookahead") would do on `side`, drawing from `rng`.
+    fn baseline(&self, side: usize, kind: &str, rng: &mut PyRng) -> PyResult<(usize, usize)> {
+        let kind = match kind {
+            "random" => Baseline::Random,
+            "greedy" => Baseline::Greedy,
+            "lookahead" => Baseline::Lookahead,
+            _ => return Err(PyValueError::new_err("the baselines are \"random\", \"greedy\" and \"lookahead\"")),
+        };
+        let a = self.inner.baseline(side_index(side)?, kind, &mut rng.inner);
+        Ok((a[0], a[1]))
+    }
+
+    /// The amounts of Speed stat points (0 to 32) the Pokémon `side`
+    /// registered `entry`th can still have, by what its opponent has seen of
+    /// the order of moves, with the nature and item it was registered with.
+    fn speed_points(&self, side: usize, entry: usize) -> PyResult<Vec<u32>> {
+        let side = side_index(side)?;
+        let set = self.inner.rosters()[side]
+            .get(entry)
+            .ok_or_else(|| PyValueError::new_err("entry is a place in the registered team"))?;
+        let belief = self.inner.speeds().belief(side, entry);
+        Ok((0..=32u32).filter(|&p| belief.has(set.nature, p as u8, set.item)).collect())
+    }
+
+    /// The lowest and highest Speed that Pokémon can have, as its opponent can tell, its item counted.
+    fn speed_range(&self, side: usize, entry: usize) -> PyResult<(u32, u32)> {
+        let side = side_index(side)?;
+        let set = self.inner.rosters()[side]
+            .get(entry)
+            .ok_or_else(|| PyValueError::new_err("entry is a place in the registered team"))?;
+        Ok(self.inner.speeds().belief(side, entry).range(set.species))
+    }
+
+    /// The public counts of the hidden-length effects (`Counts`), as JSON.
+    fn counts(&self) -> PyResult<String> {
+        serde_json::to_string(self.inner.counts()).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+}
+
+/// A position (`BattleState` JSON) with the simulator's bookkeeping taken out,
+/// so that `Battle.from_state` works it out again: for a position edited after export.
+#[pyfunction]
+fn without_bookkeeping(json: &str) -> PyResult<String> {
+    Ok(BattleState::from_json(json).map_err(failed)?.without_bookkeeping().to_json())
+}
+
 /// A team (JSON, as a pool has it) in Showdown's packed format, for `/utm`.
 #[pyfunction]
 fn packed_team(team: &str) -> PyResult<String> {
@@ -312,6 +677,10 @@ fn names(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVecEnv>()?;
     m.add_class::<PyFollower>()?;
+    m.add_class::<PyBattle>()?;
+    m.add_class::<PyGame>()?;
+    m.add_class::<PyRng>()?;
+    m.add_function(wrap_pyfunction!(without_bookkeeping, m)?)?;
     m.add_function(wrap_pyfunction!(packed_team, m)?)?;
     m.add_function(wrap_pyfunction!(team_problems, m)?)?;
     m.add_function(wrap_pyfunction!(layout, m)?)?;

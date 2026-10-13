@@ -53,6 +53,8 @@
 
 use std::sync::OnceLock;
 
+use serde::{Deserialize, Serialize};
+
 use crate::battle::{PokemonSet, calc_stats};
 use crate::data::*;
 use crate::shown::{ItemShown, Shown, UNKNOWN};
@@ -236,6 +238,18 @@ pub struct Timers {
     screens: [[Timer; 3]; 2],
 }
 
+/// [`Timers`] as counts: how many turns the weather, the terrain and each
+/// side's Reflect, Light Screen and Aurora Veil have been up (`None`: not
+/// there), which is all a player watching has of them. What
+/// [`Timers::counts`] writes and [`Timers::counted`] reads back.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TimerCounts {
+    pub weather: Option<u16>,
+    pub terrain: Option<u16>,
+    pub screens: [[Option<u16>; 3]; 2],
+}
+
 const SCREENS: [SideCond; 3] = [SideCond::Reflect, SideCond::Lightscreen, SideCond::Auroraveil];
 
 impl Timers {
@@ -248,6 +262,38 @@ impl Timers {
             None => Timer::default(),
         };
         Timers { weather: timer(weather), terrain: timer(terrain), screens: screens.map(|side| side.map(timer)) }
+    }
+
+    /// The counts as of `turn` (the battle's turn, as the observation reads them).
+    pub fn counts(&self, turn: u16) -> TimerCounts {
+        let count = |t: &Timer| (t.kind != 0).then(|| t.elapsed(turn) as u16);
+        TimerCounts {
+            weather: count(&self.weather),
+            terrain: count(&self.terrain),
+            screens: self.screens.map(|side| side.map(|t| count(&t))),
+        }
+    }
+
+    /// Timers rebuilt from counts take on the battle's own conditions (kind,
+    /// instance and turns left) without moving when they began, so that later
+    /// `update`s go on counting instead of starting over.
+    pub(crate) fn adopt(&mut self, b: &Battle) {
+        let take = |t: &mut Timer, kind: u8, uid: u16, left: u8| {
+            if t.kind != 0 && kind != 0 {
+                (t.kind, t.uid, t.left) = (kind, uid, left);
+            }
+        };
+        let w = &b.field.weather;
+        take(&mut self.weather, w.kind as u8, w.st.uid, w.duration);
+        let t = &b.field.terrain;
+        take(&mut self.terrain, t.kind as u8, t.st.uid, t.duration);
+        for side in 0..2 {
+            for (k, &kind) in SCREENS.iter().enumerate() {
+                if let Some(c) = b.sides[side].conds.get(kind) {
+                    take(&mut self.screens[side][k], 1, c.st.uid, c.duration);
+                }
+            }
+        }
     }
 
     /// To be called at every decision, the first included.

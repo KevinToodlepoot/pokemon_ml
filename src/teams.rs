@@ -436,18 +436,28 @@ pub struct Sampled {
 #[derive(Clone, Debug)]
 pub struct Sampler {
     teams: Vec<Vec<PokemonSet>>,
-    format: &'static crate::format::Format,
+    /// The regulation the teams are held to; `None` for a pool taken as it is.
+    format: Option<&'static crate::format::Format>,
 }
 
 impl Sampler {
     /// Every team of `pool`, ready to be handed out. They are checked
     /// against the regulation the engine is built for.
     pub fn new(pool: &Pool) -> Result<Sampler, Error> {
-        let format = crate::format::Format::current();
+        Sampler::with_check(pool, true)
+    }
+
+    /// As [`Sampler::new`], or with `check` off, every team of `pool` taken
+    /// as it is: any Pokémon the engine's tables know, with any moves,
+    /// ability and item, whether or not the regulation allows them. (A
+    /// varied team is then not held to the regulation either.) Stat points
+    /// are still bounded by what the game allows, which the simulator needs.
+    pub fn with_check(pool: &Pool, check: bool) -> Result<Sampler, Error> {
+        let format = check.then(crate::format::Format::current);
         let mut teams = Vec::with_capacity(pool.teams.len());
         for (i, t) in pool.teams.iter().enumerate() {
             let sets = t.sets()?;
-            if let Some(problem) = format.check_team(&sets).first() {
+            if let Some(problem) = format.and_then(|f| f.check_team(&sets).first().cloned()) {
                 return Err(Error::BadTeam(format!("team {i} of the pool ({}): {problem}", t.player)));
             }
             teams.push(sets);
@@ -456,6 +466,11 @@ impl Sampler {
             return Err(Error::BadTeam("an empty pool".to_string()));
         }
         Ok(Sampler { teams, format })
+    }
+
+    /// Whether the teams are held to the regulation.
+    pub fn checked(&self) -> bool {
+        self.format.is_some()
     }
 
     /// How many teams there are.
@@ -496,7 +511,7 @@ impl Sampler {
                     continue;
                 }
                 let outgoing = std::mem::replace(&mut out.team[slot], incoming.clone());
-                if self.format.check_team(&out.team).is_empty() {
+                if self.format.is_none_or(|f| f.check_team(&out.team).is_empty()) {
                     taken[slot] = true;
                     out.swapped += 1;
                     break;

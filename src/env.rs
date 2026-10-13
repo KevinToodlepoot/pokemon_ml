@@ -31,10 +31,13 @@
 //! two cannot switch to the same Pokémon, or both Mega Evolve).
 
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::battle::{Error, PokemonSet, calc_stats, struggle_id};
 use crate::data::*;
-use crate::obs::{OBS_F, OBS_I, Phase, ROSTER, Timers, observe_battle, observe_preview};
+use crate::format::ShowdownSet;
+use crate::obs::{OBS_F, OBS_I, Phase, ROSTER, TimerCounts, Timers, observe_battle, observe_preview};
+use crate::position::BattleState;
 use crate::rng::Rng;
 use crate::speed::{self, Speeds};
 use crate::state::*;
@@ -93,6 +96,113 @@ pub enum Baseline {
     Lookahead,
 }
 
+/// How far the effects with a hidden random length have run, as both players
+/// can count them from the log: by side and team index, the turns a Pokémon
+/// has been asleep (its `cant` lines; Early Bird counts two a turn), the move
+/// attempts it has made while confused, the turns of a rampage it has used
+/// and the turns of residual damage a binding move has dealt it. Part of a
+/// game's state, next to its [`Battle`], for whoever has to draw the hidden
+/// length afresh (a search from a position one side knows). An effect that
+/// began and ran in the same step counts from the decision after, which is
+/// one short.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Counts {
+    pub sleep: [[u8; MAX_TEAM]; 2],
+    pub confusion: [[u8; MAX_TEAM]; 2],
+    pub rampage: [[u8; MAX_TEAM]; 2],
+    pub trap: [[u8; MAX_TEAM]; 2],
+}
+
+impl Counts {
+    /// Advances the counts from the battle as it was at the last decision to the battle now.
+    fn update(&mut self, before: &Battle, after: &Battle) {
+        for side in 0..2 {
+            for idx in 0..MAX_TEAM {
+                let r = MonRef { side: side as u8, idx: idx as u8 };
+                let (was, now) = (before.mon(r), after.mon(r));
+                // Sleep: the same bout goes on if the status instance is the same.
+                let same_sleep =
+                    was.status == Status::Slp && now.status == Status::Slp && was.status_st.uid == now.status_st.uid;
+                self.sleep[side][idx] = if now.status != Status::Slp {
+                    0
+                } else if same_sleep {
+                    self.sleep[side][idx].saturating_add(was.status_time.saturating_sub(now.status_time))
+                } else {
+                    0
+                };
+                // Volatiles live with the Pokémon's position on the field.
+                let vol = |b: &Battle, m: &Pokemon, kind: VolKind| -> Option<(u16, u16, i16, u8)> {
+                    if !m.is_active || m.fainted {
+                        return None;
+                    }
+                    b.vols(r).get(kind).map(|c| (c.st.uid, c.data, c.st.a, c.duration))
+                };
+                // (uid, data, st.a, duration) of the condition at the last decision and now.
+                type Seen = Option<(u16, u16, i16, u8)>;
+                type Used = fn(&(u16, u16, i16, u8), &(u16, u16, i16, u8)) -> u8;
+                let step = |count: &mut u8, was: Seen, now: Seen, used: Used| {
+                    *count = match (was, now) {
+                        (Some(w), Some(n)) if w.0 == n.0 => count.saturating_add(used(&w, &n)),
+                        _ => 0,
+                    };
+                };
+                step(
+                    &mut self.confusion[side][idx],
+                    vol(before, was, VolKind::Confusion),
+                    vol(after, now, VolKind::Confusion),
+                    |w, n| w.1.saturating_sub(n.1).min(255) as u8,
+                );
+                step(
+                    &mut self.rampage[side][idx],
+                    vol(before, was, VolKind::Lockedmove),
+                    vol(after, now, VolKind::Lockedmove),
+                    |w, n| (w.2 - n.2).clamp(0, 255) as u8,
+                );
+                step(
+                    &mut self.trap[side][idx],
+                    vol(before, was, VolKind::Partiallytrapped),
+                    vol(after, now, VolKind::Partiallytrapped),
+                    |w, n| w.3.saturating_sub(n.3),
+                );
+            }
+        }
+    }
+}
+
+/// A [`Game`] written down: the position with everything a game keeps next to
+/// it. The two teams as registered (six a side, with their stat points, which
+/// a [`BattleState`] has only for the Pokémon brought), whether the sheets are
+/// open, the battle if Team Preview is over, and the bookkeeping the
+/// observation reads: how long the field conditions have been up
+/// ([`TimerCounts`]), what each side has been shown of the other's Speed
+/// ([`Speeds`]) and the public counts of the hidden-length effects
+/// ([`Counts`]). The last three may be left out of a position written by
+/// hand, and are then taken as if nothing had been seen before this turn.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GameState {
+    pub rosters: [Vec<ShowdownSet>; 2],
+    pub open: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battle: Option<BattleState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timers: Option<TimerCounts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speeds: Option<Speeds>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts: Option<Counts>,
+}
+
+impl GameState {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("a game state is always serialisable")
+    }
+    pub fn from_json(text: &str) -> Result<GameState, Error> {
+        serde_json::from_str(text).map_err(|e| Error::BadState(format!("unreadable game state: {e}")))
+    }
+}
+
 /// One game: Team Preview, then the battle.
 #[derive(Clone, Debug)]
 pub struct Game {
@@ -103,6 +213,7 @@ pub struct Game {
     battle: Option<Battle>,
     timers: Timers,
     speeds: Speeds,
+    counts: Counts,
     /// What the engine noted during the last step, for `speeds` (kept to reuse the space).
     events: Vec<speed::Event>,
 }
@@ -124,7 +235,80 @@ impl Game {
             }
         }
         let speeds = Speeds::new([&rosters[0], &rosters[1]], open);
-        Ok(Game { rosters, stats, open, battle: None, timers: Timers::default(), speeds, events: Vec::new() })
+        Ok(Game {
+            rosters,
+            stats,
+            open,
+            battle: None,
+            timers: Timers::default(),
+            speeds,
+            counts: Counts::default(),
+            events: Vec::new(),
+        })
+    }
+
+    /// The game written down, battle and bookkeeping included. See [`GameState`].
+    pub fn to_state(&self) -> GameState {
+        let rosters = [
+            self.rosters[0].iter().map(ShowdownSet::from_set).collect(),
+            self.rosters[1].iter().map(ShowdownSet::from_set).collect(),
+        ];
+        match &self.battle {
+            None => GameState { rosters, open: self.open, ..GameState::default() },
+            Some(b) => GameState {
+                rosters,
+                open: self.open,
+                battle: Some(b.to_state()),
+                timers: Some(self.timers.counts(b.turn)),
+                speeds: Some(self.speeds),
+                counts: Some(self.counts),
+            },
+        }
+    }
+
+    /// A game taken up from a [`GameState`]: at Team Preview if it has no
+    /// battle, else at the battle's request. Bookkeeping left out is taken as
+    /// if nothing had been seen before: the field conditions as just put up,
+    /// each side's Speed as the sheets allow, the hidden-length effects as
+    /// just begun.
+    pub fn from_state(st: &GameState) -> Result<Game, Error> {
+        let sets = |team: &[ShowdownSet]| team.iter().map(|s| s.to_set()).collect::<Result<Vec<_>, _>>();
+        let mut g = Game::new([sets(&st.rosters[0])?, sets(&st.rosters[1])?], st.open)?;
+        let Some(bs) = &st.battle else {
+            return Ok(g);
+        };
+        if bs.open_team_sheets != st.open {
+            return Err(Error::BadState("the battle and the game disagree on whether the sheets are open".into()));
+        }
+        let b = Battle::from_state(bs)?;
+        g.timers = match &st.timers {
+            Some(c) => {
+                let mut t = Timers::counted(c.weather, c.terrain, c.screens, b.turn);
+                t.adopt(&b);
+                t
+            }
+            None => {
+                let mut t = Timers::default();
+                t.update(&b);
+                t
+            }
+        };
+        if let Some(sp) = &st.speeds {
+            g.speeds = *sp;
+            g.speeds.strict = false;
+        }
+        g.speeds.resume(&b);
+        g.counts = st.counts.unwrap_or_default();
+        g.battle = Some(b);
+        Ok(g)
+    }
+
+    pub fn timers(&self) -> &Timers {
+        &self.timers
+    }
+
+    pub fn counts(&self) -> &Counts {
+        &self.counts
     }
 
     pub fn phase(&self) -> Phase {
@@ -208,6 +392,7 @@ impl Game {
         self.timers = Timers::default();
         self.timers.update(&b);
         self.speeds.digest(&self.events, &b);
+        self.counts = Counts::default();
         self.battle = Some(b);
         Ok(())
     }
@@ -215,9 +400,11 @@ impl Game {
     /// Both sides choose, in the battle's own terms. ([`Game::act`] does this from actions.)
     pub fn choose(&mut self, choices: [[Choice; ACTIVE]; 2]) -> Result<(), Error> {
         let b = self.battle.as_mut().ok_or_else(|| Error::BadChoice("the battle has not started".into()))?;
+        let before = *b;
         speed::record(&mut self.events, || b.choose(choices))?;
         self.timers.update(b);
         self.speeds.digest(&self.events, b);
+        self.counts.update(&before, b);
         Ok(())
     }
 
@@ -487,11 +674,24 @@ pub struct Config {
     pub max_turns: u16,
     /// Worker threads; 0 for one per core.
     pub threads: usize,
+    /// Whether the pool's teams are checked against the regulation (and a
+    /// team that breaks it refused). Off, any team the engine can simulate is
+    /// played as it is: for pools of deliberately illegal teams, made up to
+    /// teach a model what the regulation's sets do not cover.
+    pub check_teams: bool,
 }
 
 impl Default for Config {
     fn default() -> Config {
-        Config { envs: 256, seed: 1, open_sheets: 0.5, variation: Variation::default(), max_turns: 100, threads: 0 }
+        Config {
+            envs: 256,
+            seed: 1,
+            open_sheets: 0.5,
+            variation: Variation::default(),
+            max_turns: 100,
+            threads: 0,
+            check_teams: true,
+        }
     }
 }
 
@@ -547,7 +747,7 @@ fn seed_of(rng: &mut Rng) -> [u16; 4] {
 impl VecEnv {
     /// `config.envs` games between teams of `pool`, all at Team Preview.
     pub fn new(pool: &Pool, config: Config) -> Result<VecEnv, Error> {
-        let sampler = Sampler::new(pool)?;
+        let sampler = Sampler::with_check(pool, config.check_teams)?;
         if let Some(short) = pool.teams.iter().find(|t| t.team.len() != ROSTER) {
             return Err(Error::BadTeam(format!(
                 "{}'s team has {} Pokémon, not {ROSTER}",

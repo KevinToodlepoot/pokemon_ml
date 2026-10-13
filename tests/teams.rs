@@ -2,10 +2,12 @@
 //! what a sheet leaves out, and keeping a pool. `scripts/check_scraper.py`
 //! checks the whole path from a tournament's web page to a pool.
 
+use vgc_engine::env::{Config, OBS_M, VecEnv};
 use vgc_engine::format::{Format, ShowdownSet};
+use vgc_engine::obs::{OBS_F, OBS_I};
 use vgc_engine::rng::Rng;
 use vgc_engine::teams::{Pool, PoolTeam, Sampler, Variation, guess_spread, read_sheet};
-use vgc_engine::{Battle, Error};
+use vgc_engine::{Battle, Error, PokemonSet};
 
 /// An open team sheet as a paste site shows it: no stat points.
 const SHEET: &str = "\
@@ -282,5 +284,40 @@ fn a_pool_of_teams_can_be_saved_loaded_and_played() -> Result<(), Error> {
     let shown = battle.shown(1);
     assert_eq!(shown.roster.len(), 6);
     assert_eq!(shown.roster[0].sheet.as_ref().unwrap().item, "garchompitez");
+    Ok(())
+}
+
+/// A pool of teams the regulation refuses (a Garchomp with Levitate and
+/// Moonblast) is refused by the sampler as a rule, and handed out as it is
+/// when the check is switched off; the environment then plays it.
+#[test]
+fn an_unchecked_sampler_hands_out_teams_the_regulation_refuses() -> Result<(), Error> {
+    let mut pool = pool_of(3);
+    let odd = PokemonSet::from_names("Garchomp", &["Moonblast", "Protect", "Earthquake"], "Jolly", [11; 6])?
+        .ability("Levitate")?
+        .item("Life Orb")?;
+    pool.teams[0].team[0] = ShowdownSet::from_set(&odd);
+    let format = Format::current();
+    assert!(!format.check_team(&pool.teams[0].sets()?).is_empty());
+    assert!(matches!(Sampler::new(&pool), Err(Error::BadTeam(_))));
+
+    let sampler = Sampler::with_check(&pool, false)?;
+    assert!(!sampler.checked() && Sampler::new(&pool_of(3))?.checked());
+    let mut rng = Rng::from_words([4, 4, 4, 4]);
+    let handed = (0..60).map(|_| sampler.sample(&mut rng, &Variation::NONE)).find(|s| s.from == 0).unwrap();
+    assert_eq!(handed.team[0], odd, "as it is in the pool");
+
+    let config =
+        Config { envs: 8, seed: 3, threads: 1, variation: Variation::NONE, check_teams: false, ..Config::default() };
+    assert!(matches!(VecEnv::new(&pool, Config { check_teams: true, ..config.clone() }), Err(Error::BadTeam(_))));
+    let mut env = VecEnv::new(&pool, config)?;
+    let n = env.len();
+    let (mut f, mut i, mut m) = (vec![0.0; 2 * n * OBS_F], vec![0; 2 * n * OBS_I], vec![0; 2 * n * OBS_M]);
+    let (mut reward, mut done, mut actions) = (vec![0.0; 2 * n], vec![0; n], vec![0; 4 * n]);
+    for _ in 0..40 {
+        env.baseline(vgc_engine::env::Baseline::Random, &mut actions);
+        env.step(&actions, &mut f, &mut i, &mut m, &mut reward, &mut done)?;
+    }
+    assert!(env.stats().decisions == 40 * n as u64);
     Ok(())
 }

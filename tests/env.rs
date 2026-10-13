@@ -3,12 +3,13 @@
 //! legal, nothing hidden reaches the other side, and many games run at once.
 
 use vgc_engine::data::{ABILITIES, ITEMS, MOVES, SPECIES, ab, ability_id, item_id, move_id, species_id};
-use vgc_engine::env::{Baseline, Config, Game, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
+use vgc_engine::env::{Baseline, Config, Game, GameState, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
 use vgc_engine::format::{Format, ShowdownSet};
 use vgc_engine::obs::{
     ACT_F, ACT_VOLATILES, ACTIVES, FIELD_F, HIDDEN_VOLATILES, ID_BASE, ID_NONE, ID_UNKNOWN, MON_F, MON_IDS, MONS,
     MOVE_F, OBS_F, OBS_I, Phase, ROSTER, item_table, layout, move_table, species_table, vocab,
 };
+use vgc_engine::position::{BattleState, CondState, PokemonState, SideState};
 use vgc_engine::rng::Rng;
 use vgc_engine::teams::{Pool, PoolTeam, Variation};
 use vgc_engine::{Choice, PokemonSet, Request};
@@ -656,4 +657,145 @@ fn after_reflect_type_each_side_has_the_types_it_was_told() {
     assert_eq!(stunfisk(&g), [garchomp.clone(), zoroark.clone()]);
     g.choose([[mv(1, 0), mv(0, 0)], [mv(0, 0), mv(0, 0)]]).unwrap();
     assert_eq!(stunfisk(&g), [garchomp, zoroark]);
+}
+
+/// A game written down and taken up again (`Game::to_state`, `Game::from_state`)
+/// shows both sides the same and plays on the same, at every decision of
+/// random games, through JSON. The bookkeeping that goes with the battle (how
+/// long conditions have been up, what each side can tell of the other's
+/// Speed, the public counts of hidden-length effects) comes back with it.
+#[test]
+fn a_game_taken_up_from_its_state_observes_and_plays_the_same() {
+    let mut rng = Rng::from_words([7, 7, 7, 7]);
+    let (mut decisions, mut with_timers, mut with_counts) = (0, 0, 0);
+    for seed in 0..40 {
+        let open = seed % 3 != 0;
+        let mut game = Game::new(teams(700 + seed), open).unwrap();
+        loop {
+            let st = game.to_state();
+            assert_eq!(GameState::from_json(&st.to_json()).unwrap(), st, "through JSON and back");
+            let mut again = Game::from_state(&st).unwrap();
+            assert_eq!(again.phase(), game.phase());
+            for view in 0..2 {
+                let (a, b) = (Obs::of(&game, view), Obs::of(&again, view));
+                assert!(a.f == b.f && a.i == b.i && a.m == b.m, "seed {seed}, view {view}: the observation changed");
+            }
+            if let Some(t) = &st.timers {
+                with_timers += (t.weather.is_some() || t.terrain.is_some()) as u32;
+            }
+            if let Some(c) = &st.counts {
+                let any = |a: &[[u8; 6]; 2]| a.iter().flatten().any(|&n| n > 0);
+                with_counts += (any(&c.sleep) || any(&c.confusion)) as u32;
+            }
+            decisions += 1;
+            let mut actions = [[0usize; 2]; 2];
+            for (side, a) in actions.iter_mut().enumerate() {
+                *a = game.baseline(side, Baseline::Random, &mut rng);
+            }
+            let seed = [rng.below(65536) as u16, 2, 3, 4];
+            game.act(actions, seed).unwrap();
+            again.act(actions, seed).unwrap();
+            assert_eq!(game.battle().unwrap().position_diff(again.battle().unwrap()), None, "after acting");
+            for view in 0..2 {
+                let (a, b) = (Obs::of(&game, view), Obs::of(&again, view));
+                assert!(a.f == b.f && a.i == b.i && a.m == b.m, "seed {seed:?}, view {view}: diverged after a step");
+            }
+            let b = game.battle().unwrap();
+            if b.ended || b.turn > 60 {
+                break;
+            }
+        }
+    }
+    assert!(decisions > 500, "{decisions} decisions");
+    assert!(with_timers > 20 && with_counts > 5, "{with_timers} positions with a timer, {with_counts} with a count");
+}
+
+/// Bookkeeping left out of a game state is taken as if nothing had been seen
+/// before: the game still runs, and a state with no battle is at Team Preview.
+#[test]
+fn bookkeeping_left_out_of_a_game_state_is_taken_as_fresh() {
+    let mut rng = Rng::from_words([9, 9, 9, 9]);
+    let mut game = Game::new(teams(55), true).unwrap();
+    while game.battle().map(|b| b.turn).unwrap_or(0) < 4 {
+        let actions = [game.baseline(0, Baseline::Random, &mut rng), game.baseline(1, Baseline::Random, &mut rng)];
+        game.act(actions, [rng.below(65536) as u16, 1, 1, 1]).unwrap();
+        assert!(!game.ended());
+    }
+    let full = game.to_state();
+    let bare = GameState { timers: None, speeds: None, counts: None, ..full.clone() };
+    let mut fresh = Game::from_state(&bare).unwrap();
+    assert_eq!(fresh.phase(), Phase::Move);
+    assert_eq!(fresh.counts(), &vgc_engine::env::Counts::default());
+    // Everything the sheets allow: no narrower than what the game has worked out.
+    for side in 0..2 {
+        for entry in 0..ROSTER {
+            let species = full.rosters[side][entry].to_set().unwrap().species;
+            let (lo, hi) = fresh.speeds().belief(side, entry).range(species);
+            let (glo, ghi) = game.speeds().belief(side, entry).range(species);
+            assert!(lo <= glo && hi >= ghi);
+        }
+    }
+    let actions = [fresh.baseline(0, Baseline::Random, &mut rng), fresh.baseline(1, Baseline::Random, &mut rng)];
+    fresh.act(actions, [1, 2, 3, 4]).unwrap();
+    let preview = GameState { battle: None, ..bare };
+    let at_preview = Game::from_state(&preview).unwrap();
+    assert_eq!(at_preview.phase(), Phase::Preview);
+    assert_eq!(at_preview.legal(0).len(), N_PREVIEW);
+    // The game and its battle must agree on whether the sheets are open.
+    let mut odd = full.clone();
+    odd.open = !odd.open;
+    assert!(Game::from_state(&odd).is_err());
+}
+
+/// The public counts of the effects whose length is drawn at random: how
+/// many turns a Pokémon has slept, how many move attempts it has made while
+/// confused, how many turns a binding move has hurt it.
+#[test]
+fn the_counts_of_hidden_length_effects_advance_as_they_run() {
+    let mon = |species: &str, moves: &[&str]| PokemonState::new(species, moves);
+    let set = |species: &str, moves: &[&str]| {
+        ShowdownSet::from_set(&PokemonSet::from_names(species, moves, "Hardy", [0; 6]).unwrap())
+    };
+    let roster = |a: &str, b: &str, c: &str, d: &str| {
+        vec![
+            set(a, &["Body Slam", "Protect"]),
+            set(b, &["Scald", "Protect"]),
+            set(c, &["Earthquake", "Protect"]),
+            set(d, &["Moonblast", "Protect"]),
+            set("Arcanine", &["Flare Blitz", "Protect"]),
+            set("Rotom", &["Thunderbolt", "Protect"]),
+        ]
+    };
+    let mut snorlax = mon("Snorlax", &["Body Slam", "Protect"]).status("slp");
+    snorlax.status_turns = 3;
+    let milotic = mon("Milotic", &["Scald", "Protect"]).volatile(CondState::confusion(4));
+    let mut kingambit = mon("Kingambit", &["Kowtow Cleave", "Protect"]);
+    kingambit.volatiles.push(CondState { value: 8, ..CondState::new("partiallytrapped").turns(5).source(0, 1) });
+    let (garchomp, sylveon) = (mon("Garchomp", &["Earthquake", "Protect"]), mon("Sylveon", &["Moonblast", "Protect"]));
+    let ours = SideState::new(vec![snorlax, milotic, garchomp.clone(), sylveon.clone()]);
+    let theirs = SideState::new(vec![kingambit, mon("Pelipper", &["Hurricane", "Protect"]), garchomp, sylveon]);
+    let battle = BattleState { turn: 5, sides: [ours, theirs], ..Default::default() };
+    let st = GameState {
+        rosters: [
+            roster("Snorlax", "Milotic", "Garchomp", "Sylveon"),
+            roster("Kingambit", "Pelipper", "Garchomp", "Sylveon"),
+        ],
+        open: false,
+        battle: Some(battle),
+        ..Default::default()
+    };
+    let mut g = Game::from_state(&st).unwrap();
+    assert_eq!(g.counts(), &vgc_engine::env::Counts::default());
+    let protect = |g: &Game, side: usize| {
+        [g.action_of(side, Choice::mv(1, 0)).unwrap(), g.action_of(side, Choice::mv(1, 0)).unwrap()]
+    };
+    for turn in 1..=2u8 {
+        let actions = [protect(&g, 0), protect(&g, 1)];
+        g.act(actions, [turn as u16, 2, 3, 4]).unwrap();
+        let c = g.counts();
+        assert_eq!((c.sleep[0][0], c.confusion[0][1], c.trap[1][0]), (turn, turn, turn), "after turn {turn}: {c:?}");
+        assert_eq!(c.sleep[1], [0; 6]);
+        // The counts go with the game state.
+        assert_eq!(Game::from_state(&g.to_state()).unwrap().counts(), c);
+    }
 }
