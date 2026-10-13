@@ -158,6 +158,56 @@ The Python module (`pokemon_ml._engine`) has the same: `Battle.from_state` /
 `check_teams=False` plays a pool as it is, teams the regulation refuses
 included (any Pokémon the tables know, with any moves, ability and item).
 
+## Searching from a position
+
+`search` plays a position one turn ahead as the simultaneous-move game it
+is. Each side has a list of joint actions (`Game::legal`, in whatever order
+the caller thinks likely); a **cell** is one pair of them played for a turn
+under one set of dice; the matrix of cells, averaged over the dice, is a
+zero-sum game whose equilibrium says what each side should mix between and
+what the position is worth. The **double oracle** builds that matrix from
+the first action of each list outwards: solve it (regret matching+, with a
+gap that certifies the answer), look for an action outside the matrix that
+does better against the other side's mix, add it, solve again, until
+neither side can improve or a budget runs out (candidates per step, dice per
+cell, steps, time). Values come from outside: a hand score of the leaf
+(`hand_value`: HP left and Pokémon standing, each side against the other,
+and the result if the battle ended), or a network over the leaf's
+observation. The `Search` object names the cells it needs, takes their
+values, and moves on, so that a driver can batch leaves across many
+searches at once:
+
+```rust
+use vgc_engine::search::{Budget, Search, SimOpts, hand_value, heuristic_order, pool, run};
+
+let rows = heuristic_order(&game, 0, &mut rng);        // our joint actions, likeliest first
+let cols = heuristic_order(&game, 1, &mut rng);        // theirs
+let mut s = [Search::new(game.clone(), 0, rows, cols, Budget::default(), 7)?];
+let opts = SimOpts { observe: false, ..SimOpts::default() };
+let mut value = |l: &vgc_engine::search::Leaves| (0..l.n).map(|k| hand_value(l.summary_of(k), 1.0, 10.0)).collect();
+run(&mut s, &mut value, &opts, &pool(0))?;
+let r = s[0].report();                                  // r.x over r.rows_in, r.value, r.gap, every cell's mean and spread
+```
+
+A cell copies the game, gives it fresh dice (`Game::reseed`), acts, answers
+a switch request in the middle of the turn (U-turn, Eject Button) with a
+random replacement and stops once the turn is over (`Game::turn_over`): at
+the next move request, at the request for replacing the fainted, or at the
+end of the battle. Cells with the same dice index play under the same seed
+words whatever their actions, so two cells differ by their actions before
+they differ by their luck, and everything repeats exactly under its seed.
+`tests/search.rs` checks that the double oracle finds the value and an
+equilibrium of the whole matrix (to within its threshold and the solver's
+gap) on a hundred positions with lists of six and of twenty a side, and on
+a hundred positions random play reaches with few actions left, while
+building a small part of the matrix; and that a cell costs about 13 µs on
+one core.
+
+From Python: `Search(game, view, rows, cols, seed, ...)` with `wanted()`,
+`simulate(cells)`, `supply(cells, values)`, `advance()` and `report()`, plus
+the functions `simulate`, `solve`, `hand_value` and `heuristic_order`, and
+`Game.reseed` / `Game.turn_over`.
+
 ## Legal teams and regulations
 
 What a regulation allows is data, one file per regulation in `formats/`,
@@ -1398,7 +1448,8 @@ likely first steps when speed starts to matter.
    network's own predictions and consistent with what has been shown. This
    is what search needs.
 4. **Search at play time**: one turn ahead as the simultaneous game it is,
-   over sampled worlds.
+   over sampled worlds. The one-turn search is in (`search`, above); what
+   is left is a network as its value function, and sampling the worlds.
 5. **The public server.** The [Showdown client](#playing-on-showdown) has
    played only on a server of its own: a first session on the real one,
    then results there kept beside the ratings.

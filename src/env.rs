@@ -432,6 +432,27 @@ impl Game {
         self.choose(choices)
     }
 
+    /// Gives the battle a fresh random number generator from four seed words,
+    /// for playing the same position out under different dice (a search cell);
+    /// `false` at Team Preview, where [`Game::act`] seeds the battle itself.
+    pub fn reseed(&mut self, words: [u16; 4]) -> bool {
+        match &mut self.battle {
+            Some(b) => {
+                b.rng = Rng::from_words(words);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether the turn has been played to its end: at a move request, at a
+    /// request for replacing the fainted at the end of the turn, or once the
+    /// battle is over. `false` at a switch request in the middle of a turn
+    /// (U-turn, Eject Button), where moves are still to run.
+    pub fn turn_over(&self) -> bool {
+        self.battle.as_ref().is_none_or(|b| b.turn_over())
+    }
+
     /// `view`'s side of the game, into buffers of [`OBS_F`], [`OBS_I`] and [`OBS_M`].
     pub fn observe(&self, view: usize, f: &mut [f32], i: &mut [i16], mask: &mut [u8]) {
         match &self.battle {

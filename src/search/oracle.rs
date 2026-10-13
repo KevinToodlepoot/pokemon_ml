@@ -1,0 +1,582 @@
+//! The double oracle: a matrix of joint actions grown from each side's
+//! likeliest action outwards, solved after every step.
+//!
+//! A [`Search`] holds a root [`Game`], the viewer whose value it computes,
+//! and each side's list of joint actions in the order the caller thinks
+//! likely (the **lists**; the first of each starts the matrix). It is driven
+//! from outside: [`Search::wanted`] names the cells whose values it needs,
+//! the driver simulates them ([`Search::simulate`]) and values the leaves
+//! however it likes, [`Search::supply`] takes the values, and
+//! [`Search::advance`] solves and looks for an improvement. The loop:
+//!
+//! 1. **Fill**: every cell of the matrix needs its `seeds` sets of dice.
+//! 2. **Solve**: the matrix of mean cell values is solved ([`solve`]).
+//! 3. **Scan**: for each side, the candidate actions outside the matrix
+//!    (every one, or the next few in its list) are valued against the other
+//!    side's mix; the best candidate is added if it beats the current value
+//!    by more than `eps`. If neither side can improve, the search has
+//!    converged: the mix is an equilibrium of the whole game over the lists,
+//!    to within `eps` and the solver's gap. Otherwise back to 1.
+//!
+//! Cell values are kept per set of dice, so a value may be replaced (a leaf
+//! searched further) and a cell may be given more dice ([`Search::deepen`]).
+//! `max_steps` and `time_cap` stop the loop early; with no steps at all the
+//! matrix is each side's first `initial` actions solved once.
+
+use std::time::{Duration, Instant};
+
+use rayon::ThreadPool;
+
+use crate::battle::Error;
+use crate::env::{Baseline, Game};
+use crate::obs::Phase;
+use crate::rng::Rng;
+use crate::search::cell::{CellId, Leaves, SimOpts, simulate};
+use crate::search::solve::{SolveOpts, Solution, solve};
+
+/// Which actions outside the matrix an oracle step considers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Candidates {
+    /// Every action in the list.
+    All,
+    /// The next so many in the list, in its order.
+    Next(usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Budget {
+    pub candidates: Candidates,
+    /// Sets of dice per cell.
+    pub seeds: usize,
+    /// How many of each side's list the matrix starts with.
+    pub initial: usize,
+    /// Oracle steps at most.
+    pub max_steps: usize,
+    pub time_cap: Option<Duration>,
+    /// A candidate is added only if it beats the current value by more than this.
+    pub eps: f64,
+    pub solver: SolveOpts,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            candidates: Candidates::All,
+            seeds: 16,
+            initial: 1,
+            max_steps: usize::MAX,
+            time_cap: None,
+            eps: 1e-3,
+            solver: SolveOpts::default(),
+        }
+    }
+}
+
+/// Why a search stopped short of convergence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cap {
+    Steps,
+    Time,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Status {
+    /// Values are needed for the cells [`Search::wanted`] names.
+    NeedCells,
+    /// Neither side can improve. `complete`: every action in both lists was
+    /// considered (always, with [`Candidates::All`]).
+    Converged { complete: bool },
+    Capped(Cap),
+}
+
+impl Status {
+    pub fn is_done(self) -> bool {
+        !matches!(self, Status::NeedCells)
+    }
+}
+
+/// A cell's values, one per set of dice, and what they add up to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellStat {
+    pub row: usize,
+    pub col: usize,
+    pub n: usize,
+    pub mean: f32,
+    /// The standard deviation of the values (0 below two).
+    pub std: f32,
+}
+
+/// What a search found.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Report {
+    /// The rows and columns in the matrix, as indices into the lists.
+    pub rows_in: Vec<usize>,
+    pub cols_in: Vec<usize>,
+    /// The viewer's mix over `rows_in` and the other side's over `cols_in`.
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+    /// The value to the viewer.
+    pub value: f64,
+    /// The solver's gap (see [`solve`]).
+    pub gap: f64,
+    /// Every cell with a value, scanned candidates included.
+    pub cells: Vec<CellStat>,
+    /// The mass of each mix above the support threshold.
+    pub supp_mass: [f64; 2],
+    pub steps: usize,
+    /// Leaf values taken in.
+    pub leaves: usize,
+    pub elapsed: Duration,
+    /// `None` while the search is still going.
+    pub status: Option<Status>,
+    /// How many distinct actions outside the matrix each side's scans considered.
+    pub scanned: [usize; 2],
+}
+
+/// Below this, an action is not in a mix's support.
+pub const SUPPORT: f64 = 1e-4;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Phase_ {
+    Fill,
+    Solve,
+    Scan,
+    Done,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Scan {
+    cand_rows: Vec<usize>,
+    cand_cols: Vec<usize>,
+    supp_rows: Vec<usize>,
+    supp_cols: Vec<usize>,
+}
+
+pub struct Search {
+    root: Game,
+    view: usize,
+    rows: Vec<[usize; 2]>,
+    cols: Vec<[usize; 2]>,
+    budget: Budget,
+    seed: u64,
+    rows_in: Vec<usize>,
+    cols_in: Vec<usize>,
+    /// Per (row, col) of the lists: the value under each set of dice.
+    cache: Vec<Vec<Option<f32>>>,
+    phase: Phase_,
+    solution: Option<Solution>,
+    scan: Scan,
+    steps: usize,
+    leaves: usize,
+    started: Instant,
+    status: Option<Status>,
+    scanned: [Vec<bool>; 2],
+}
+
+fn distinct(list: &[[usize; 2]]) -> bool {
+    let mut seen = list.to_vec();
+    seen.sort_unstable();
+    seen.windows(2).all(|w| w[0] != w[1])
+}
+
+impl Search {
+    /// A search from `root` for `view`, over `rows` (the viewer's joint
+    /// actions, likeliest first) and `cols` (the other side's). Refuses a
+    /// finished battle, an empty or repetitive list, and an action the root does not allow.
+    pub fn new(
+        root: Game,
+        view: usize,
+        rows: Vec<[usize; 2]>,
+        cols: Vec<[usize; 2]>,
+        budget: Budget,
+        seed: u64,
+    ) -> Result<Search, Error> {
+        if view > 1 {
+            return Err(Error::BadChoice("view is 0 or 1".into()));
+        }
+        if root.ended() {
+            return Err(Error::BadState("the battle is over".into()));
+        }
+        if rows.is_empty() || cols.is_empty() {
+            return Err(Error::BadChoice("each side needs at least one joint action".into()));
+        }
+        if !distinct(&rows) || !distinct(&cols) {
+            return Err(Error::BadChoice("a joint action is listed twice".into()));
+        }
+        for (side, list) in [(view, &rows), (1 - view, &cols)] {
+            let legal = root.legal(side);
+            if let Some(a) = list.iter().find(|a| !legal.contains(a)) {
+                return Err(Error::BadChoice(format!("p{}: {a:?} is not legal at the root", side + 1)));
+            }
+        }
+        if budget.seeds == 0 || budget.initial == 0 {
+            return Err(Error::BadChoice("seeds and initial are at least 1".into()));
+        }
+        let (m, n) = (rows.len(), cols.len());
+        Ok(Search {
+            root,
+            view,
+            rows_in: (0..budget.initial.min(m)).collect(),
+            cols_in: (0..budget.initial.min(n)).collect(),
+            cache: vec![Vec::new(); m * n],
+            phase: Phase_::Fill,
+            solution: None,
+            scan: Scan::default(),
+            steps: 0,
+            leaves: 0,
+            started: Instant::now(),
+            status: None,
+            scanned: [vec![false; m], vec![false; n]],
+            rows,
+            cols,
+            budget,
+            seed,
+        })
+    }
+
+    pub fn root(&self) -> &Game {
+        &self.root
+    }
+    pub fn view(&self) -> usize {
+        self.view
+    }
+    pub fn rows(&self) -> &[[usize; 2]] {
+        &self.rows
+    }
+    pub fn cols(&self) -> &[[usize; 2]] {
+        &self.cols
+    }
+    pub fn budget(&self) -> &Budget {
+        &self.budget
+    }
+    pub fn is_done(&self) -> bool {
+        self.phase == Phase_::Done
+    }
+
+    fn slots(&self, r: usize, c: usize) -> &Vec<Option<f32>> {
+        &self.cache[r * self.cols.len() + c]
+    }
+
+    /// The sets of dice a cell still lacks: up to `seeds`, or more once deepened.
+    fn missing(&self, r: usize, c: usize) -> impl Iterator<Item = CellId> + '_ {
+        let slots = self.slots(r, c);
+        let want = self.budget.seeds.max(slots.len());
+        (0..want).filter(move |&k| slots.get(k).copied().flatten().is_none()).map(move |k| CellId {
+            row: r as u32,
+            col: c as u32,
+            seed: k as u32,
+        })
+    }
+
+    fn mean(&self, r: usize, c: usize) -> Option<f32> {
+        let vals: Vec<f32> = self.slots(r, c).iter().flatten().copied().collect();
+        (!vals.is_empty()).then(|| vals.iter().sum::<f32>() / vals.len() as f32)
+    }
+
+    /// The cells whose values the next step needs and does not have.
+    pub fn wanted(&self) -> Vec<CellId> {
+        let mut out = Vec::new();
+        match self.phase {
+            Phase_::Fill => {
+                for &r in &self.rows_in {
+                    for &c in &self.cols_in {
+                        out.extend(self.missing(r, c));
+                    }
+                }
+            }
+            Phase_::Scan => {
+                for &r in &self.scan.cand_rows {
+                    for &c in &self.scan.supp_cols {
+                        out.extend(self.missing(r, c));
+                    }
+                }
+                for &c in &self.scan.cand_cols {
+                    for &r in &self.scan.supp_rows {
+                        out.extend(self.missing(r, c));
+                    }
+                }
+            }
+            Phase_::Solve | Phase_::Done => {}
+        }
+        out
+    }
+
+    /// Plays `cells` from the root (see [`simulate`]).
+    pub fn simulate(&self, cells: &[CellId], opts: &SimOpts, pool: &ThreadPool) -> Result<Leaves, Error> {
+        simulate(&self.root, self.view, &self.rows, &self.cols, cells, self.seed, opts, pool)
+    }
+
+    /// Takes in the value of each cell's leaf (in `[-1, 1]` by convention), one per cell, replacing any it had.
+    pub fn supply(&mut self, cells: &[CellId], values: &[f32]) -> Result<(), Error> {
+        if cells.len() != values.len() {
+            return Err(Error::BadChoice(format!("{} cells but {} values", cells.len(), values.len())));
+        }
+        let (m, n) = (self.rows.len(), self.cols.len());
+        for (c, &v) in cells.iter().zip(values) {
+            if !v.is_finite() {
+                return Err(Error::BadChoice(format!("cell {c:?}: the value {v} is not a number")));
+            }
+            let (r, k) = (c.row as usize, c.seed as usize);
+            if r >= m || c.col as usize >= n {
+                return Err(Error::BadChoice(format!("cell {c:?} is outside the {m}×{n} lists")));
+            }
+            let slots = &mut self.cache[r * n + c.col as usize];
+            if slots.len() <= k {
+                slots.resize(k + 1, None);
+            }
+            slots[k] = Some(v);
+            self.leaves += 1;
+        }
+        Ok(())
+    }
+
+    /// Asks for `extra` more sets of dice for a cell. The search solves again before it goes on.
+    pub fn deepen(&mut self, row: usize, col: usize, extra: usize) -> Result<(), Error> {
+        let (m, n) = (self.rows.len(), self.cols.len());
+        if row >= m || col >= n {
+            return Err(Error::BadChoice(format!("cell ({row}, {col}) is outside the {m}×{n} lists")));
+        }
+        let slots = &mut self.cache[row * n + col];
+        let have = slots.len().max(self.budget.seeds);
+        slots.resize(have + extra, None);
+        if !self.rows_in.contains(&row) {
+            self.rows_in.push(row);
+        }
+        if !self.cols_in.contains(&col) {
+            self.cols_in.push(col);
+        }
+        self.phase = Phase_::Fill;
+        self.status = None;
+        Ok(())
+    }
+
+    fn matrix(&self) -> Vec<f32> {
+        let mut a = Vec::with_capacity(self.rows_in.len() * self.cols_in.len());
+        for &r in &self.rows_in {
+            for &c in &self.cols_in {
+                a.push(self.mean(r, c).expect("the matrix is filled before it is solved"));
+            }
+        }
+        a
+    }
+
+    fn finish(&mut self, status: Status) -> Status {
+        self.phase = Phase_::Done;
+        self.status = Some(status);
+        status
+    }
+
+    /// Moves the search on as far as it can without new values.
+    pub fn advance(&mut self) -> Status {
+        loop {
+            match self.phase {
+                Phase_::Done => return self.status.expect("a finished search has a status"),
+                Phase_::Fill => {
+                    if self.wanted().is_empty() {
+                        self.phase = Phase_::Solve;
+                    } else {
+                        return Status::NeedCells;
+                    }
+                }
+                Phase_::Solve => {
+                    let a = self.matrix();
+                    let s = solve(&a, self.rows_in.len(), self.cols_in.len(), self.budget.solver);
+                    self.solution = Some(s);
+                    if self.budget.time_cap.is_some_and(|cap| self.started.elapsed() >= cap) {
+                        return self.finish(Status::Capped(Cap::Time));
+                    }
+                    if self.steps >= self.budget.max_steps {
+                        return self.finish(Status::Capped(Cap::Steps));
+                    }
+                    self.plan_scan();
+                    self.phase = Phase_::Scan;
+                }
+                Phase_::Scan => {
+                    if !self.wanted().is_empty() {
+                        return Status::NeedCells;
+                    }
+                    let added = self.oracle_step();
+                    if !added {
+                        let complete = self.scan.cand_rows.len() + self.rows_in.len() == self.rows.len()
+                            && self.scan.cand_cols.len() + self.cols_in.len() == self.cols.len();
+                        return self.finish(Status::Converged { complete });
+                    }
+                    self.steps += 1;
+                    self.phase = Phase_::Fill;
+                }
+            }
+        }
+    }
+
+    /// Which candidates the scan considers and which support they are valued against.
+    fn plan_scan(&mut self) {
+        let s = self.solution.as_ref().expect("solved");
+        let support = |mix: &[f64], in_: &[usize]| -> Vec<usize> {
+            mix.iter().enumerate().filter(|(_, p)| **p > SUPPORT).map(|(k, _)| in_[k]).collect()
+        };
+        let supp_rows = support(&s.x, &self.rows_in);
+        let supp_cols = support(&s.y, &self.cols_in);
+        let outside = |len: usize, in_: &[usize]| -> Vec<usize> {
+            let rest = (0..len).filter(|k| !in_.contains(k));
+            match self.budget.candidates {
+                Candidates::All => rest.collect(),
+                Candidates::Next(m) => rest.take(m).collect(),
+            }
+        };
+        let cand_rows = outside(self.rows.len(), &self.rows_in);
+        let cand_cols = outside(self.cols.len(), &self.cols_in);
+        for &r in &cand_rows {
+            self.scanned[0][r] = true;
+        }
+        for &c in &cand_cols {
+            self.scanned[1][c] = true;
+        }
+        self.scan = Scan { cand_rows, cand_cols, supp_rows, supp_cols };
+    }
+
+    /// Adds each side's best candidate if it improves on the current value; whether any was added.
+    fn oracle_step(&mut self) -> bool {
+        let s = self.solution.as_ref().expect("solved");
+        let value = s.value;
+        // The viewer: a row that does better against the other side's mix.
+        let mut best_row: Option<(usize, f64)> = None;
+        for &r in &self.scan.cand_rows {
+            let mut total = 0.0;
+            for (k, &c) in self.cols_in.iter().enumerate() {
+                let p = s.y[k];
+                if p > SUPPORT {
+                    total += p * self.mean(r, c).expect("scanned") as f64;
+                }
+            }
+            if best_row.is_none_or(|(_, v)| total > v) {
+                best_row = Some((r, total));
+            }
+        }
+        // The other side: a column that holds the viewer to less.
+        let mut best_col: Option<(usize, f64)> = None;
+        for &c in &self.scan.cand_cols {
+            let mut total = 0.0;
+            for (k, &r) in self.rows_in.iter().enumerate() {
+                let p = s.x[k];
+                if p > SUPPORT {
+                    total += p * self.mean(r, c).expect("scanned") as f64;
+                }
+            }
+            if best_col.is_none_or(|(_, v)| total < v) {
+                best_col = Some((c, total));
+            }
+        }
+        let eps = self.budget.eps;
+        let mut added = false;
+        if let Some((r, v)) = best_row {
+            if v > value + eps {
+                self.rows_in.push(r);
+                added = true;
+            }
+        }
+        if let Some((c, v)) = best_col {
+            if v < value - eps {
+                self.cols_in.push(c);
+                added = true;
+            }
+        }
+        added
+    }
+
+    pub fn report(&self) -> Report {
+        let (m, n) = (self.rows.len(), self.cols.len());
+        let mut cells = Vec::new();
+        for r in 0..m {
+            for c in 0..n {
+                let vals: Vec<f32> = self.slots(r, c).iter().flatten().copied().collect();
+                if vals.is_empty() {
+                    continue;
+                }
+                let k = vals.len() as f32;
+                let mean = vals.iter().sum::<f32>() / k;
+                let squares: f32 = vals.iter().map(|v| (v - mean) * (v - mean)).sum();
+                let var = if vals.len() > 1 { squares / (k - 1.0) } else { 0.0 };
+                cells.push(CellStat { row: r, col: c, n: vals.len(), mean, std: var.sqrt() });
+            }
+        }
+        let (x, y, value, gap) = match &self.solution {
+            Some(s) => (s.x.clone(), s.y.clone(), s.value, s.gap),
+            None => (Vec::new(), Vec::new(), f64::NAN, f64::NAN),
+        };
+        let mass = |mix: &[f64]| mix.iter().filter(|&&p| p > SUPPORT).sum::<f64>();
+        Report {
+            rows_in: self.rows_in.clone(),
+            cols_in: self.cols_in.clone(),
+            supp_mass: [mass(&x), mass(&y)],
+            x,
+            y,
+            value,
+            gap,
+            cells,
+            steps: self.steps,
+            leaves: self.leaves,
+            elapsed: self.started.elapsed(),
+            status: self.status,
+            scanned: [self.scanned[0].iter().filter(|&&b| b).count(), self.scanned[1].iter().filter(|&&b| b).count()],
+        }
+    }
+}
+
+/// Drives searches to their end together: each round, every search still
+/// going names its cells, all of them are simulated, their leaves are valued
+/// in one call, and the values handed back. `value` returns one number per
+/// leaf, in the order given.
+pub fn run(
+    searches: &mut [Search],
+    value: &mut dyn FnMut(&Leaves) -> Vec<f32>,
+    opts: &SimOpts,
+    pool: &ThreadPool,
+) -> Result<(), Error> {
+    loop {
+        let mut batch = Leaves::default();
+        let mut asked: Vec<(usize, Vec<CellId>)> = Vec::new();
+        for (k, s) in searches.iter_mut().enumerate() {
+            if s.is_done() {
+                continue;
+            }
+            if s.advance() == Status::NeedCells {
+                let cells = s.wanted();
+                batch.append(s.simulate(&cells, opts, pool)?);
+                asked.push((k, cells));
+            }
+        }
+        if asked.is_empty() {
+            return Ok(());
+        }
+        let values = value(&batch);
+        if values.len() != batch.n {
+            return Err(Error::BadChoice(format!("{} leaves but {} values", batch.n, values.len())));
+        }
+        let mut at = 0;
+        for (k, cells) in asked {
+            searches[k].supply(&cells, &values[at..at + cells.len()])?;
+            at += cells.len();
+        }
+    }
+}
+
+/// A side's joint actions with the likeliest first, without a model: what
+/// the engine's greedy player would do, then its look-ahead player, then
+/// the rest as the engine lists them. At Team Preview or a switch request,
+/// the engine's order.
+pub fn heuristic_order(game: &Game, side: usize, rng: &mut Rng) -> Vec<[usize; 2]> {
+    let legal = game.legal(side);
+    if game.ended() || game.phase() != Phase::Move || legal.len() <= 1 {
+        return legal;
+    }
+    let mut out = Vec::with_capacity(legal.len());
+    for kind in [Baseline::Greedy, Baseline::Lookahead] {
+        let pick = game.baseline(side, kind, rng);
+        if legal.contains(&pick) && !out.contains(&pick) {
+            out.push(pick);
+        }
+    }
+    let picked = out.clone();
+    out.extend(legal.iter().copied().filter(|a| !picked.contains(a)));
+    out
+}

@@ -3,7 +3,7 @@
 //! NumPy arrays that Python owns and Rust fills in place, with the
 //! interpreter lock let go while the games are stepped.
 
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyReadwriteArray1, PyReadwriteArray2};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyReadwriteArray1, PyReadwriteArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -15,6 +15,7 @@ use crate::format::{Format, ShowdownSet};
 use crate::obs::{self, INFO, OBS_F, OBS_I, Phase, Table};
 use crate::position::BattleState;
 use crate::rng::Rng;
+use crate::search::{self, Budget, Candidates, Cap, CellId, Follow, Leaves, SUMMARY, SimOpts, SolveOpts, Status};
 use crate::state::{ACTIVE, Battle, Choice, Request};
 use crate::teams::{Pool, Variation};
 
@@ -568,6 +569,20 @@ impl PyGame {
         Ok((a[0], a[1]))
     }
 
+    /// Gives the battle fresh dice from four seed words, for playing the same
+    /// position out another way; `False` at Team Preview (`act` seeds the battle there).
+    fn reseed(&mut self, words: Vec<u16>) -> PyResult<bool> {
+        Ok(self.inner.reseed(seed_words(words)?))
+    }
+
+    /// Whether the turn has been played to its end: at a move request, at a
+    /// request for replacing the fainted at the end of the turn, or once the
+    /// battle is over; `False` at a switch request in the middle of a turn.
+    #[getter]
+    fn turn_over(&self) -> bool {
+        self.inner.turn_over()
+    }
+
     /// The amounts of Speed stat points (0 to 32) the Pokémon `side`
     /// registered `entry`th can still have, by what its opponent has seen of
     /// the order of moves, with the nature and item it was registered with.
@@ -673,8 +688,290 @@ fn names(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     Ok(d)
 }
 
+// Search (`vgc_engine::search`): cells, the matrix solver and the double oracle.
+
+fn pairs(v: Vec<(usize, usize)>) -> Vec<[usize; 2]> {
+    v.into_iter().map(|(a, b)| [a, b]).collect()
+}
+
+fn cells_of(cells: &PyReadonlyArray2<'_, i32>) -> PyResult<Vec<CellId>> {
+    let shape = cells.as_array().shape().to_vec();
+    if shape.len() != 2 || shape[1] != 3 {
+        return Err(PyValueError::new_err("cells are an n × 3 int32 array: row, column, seed"));
+    }
+    let flat = cells.as_slice().map_err(|_| PyValueError::new_err("cells must be a C-contiguous int32 array"))?;
+    flat.chunks(3)
+        .map(|c| {
+            if c.iter().any(|&v| v < 0) {
+                return Err(PyValueError::new_err(format!("a cell index is negative: {c:?}")));
+            }
+            Ok(CellId { row: c[0] as u32, col: c[1] as u32, seed: c[2] as u32 })
+        })
+        .collect()
+}
+
+fn follow_of(s: &str) -> PyResult<Follow> {
+    match s {
+        "end_of_turn" => Ok(Follow::EndOfTurn),
+        "to_move" => Ok(Follow::ToMove),
+        "none" => Ok(Follow::None),
+        _ => Err(PyValueError::new_err("follow is \"end_of_turn\", \"to_move\" or \"none\"")),
+    }
+}
+
+fn status_name(s: Status) -> &'static str {
+    match s {
+        Status::NeedCells => "need_cells",
+        Status::Converged { complete: true } => "converged",
+        Status::Converged { complete: false } => "converged_partial",
+        Status::Capped(Cap::Steps) => "capped_steps",
+        Status::Capped(Cap::Time) => "capped_time",
+    }
+}
+
+type LeavesOut<'py> = (Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>, Vec<PyGame>);
+
+/// The leaves as arrays: `f` (n × OBS_F float32, or 0 × OBS_F), `i` (n × OBS_I int16), `summary`
+/// (n × SUMMARY float32) and the kept states as `Game`s (empty unless asked for).
+fn leaves_out(py: Python<'_>, l: Leaves) -> PyResult<LeavesOut<'_>> {
+    let (nf, ni) = (l.f.len() / OBS_F, l.i.len() / OBS_I);
+    let f = PyArray1::from_vec(py, l.f).reshape([nf, OBS_F])?.into_any();
+    let i = PyArray1::from_vec(py, l.i).reshape([ni, OBS_I])?.into_any();
+    let s = PyArray1::from_vec(py, l.summary).reshape([l.n, SUMMARY])?.into_any();
+    Ok((f, i, s, l.states.into_iter().map(|g| PyGame { inner: g }).collect()))
+}
+
+/// Plays every cell (an n × 3 int32 array of row, column and seed indices into `rows`
+/// and `cols`, each side's joint actions) from `game` for `view`, and returns the
+/// leaves in the same order: `(f, i, summary, states)` (see `Leaves` in Rust). `follow`:
+/// what to do at a switch request before the leaf ("end_of_turn", "to_move", "none").
+/// Runs on `threads` worker threads (0: one per core) with the interpreter lock let go.
+#[pyfunction]
+#[pyo3(signature = (
+    game, view, rows, cols, cells, seed, observe=true, keep_states=false, follow="end_of_turn", threads=0
+))]
+#[allow(clippy::too_many_arguments)]
+fn simulate<'py>(
+    py: Python<'py>,
+    game: &PyGame,
+    view: usize,
+    rows: Vec<(usize, usize)>,
+    cols: Vec<(usize, usize)>,
+    cells: PyReadonlyArray2<'py, i32>,
+    seed: u64,
+    observe: bool,
+    keep_states: bool,
+    follow: &str,
+    threads: usize,
+) -> PyResult<LeavesOut<'py>> {
+    let cells = cells_of(&cells)?;
+    let (rows, cols) = (pairs(rows), pairs(cols));
+    let opts = SimOpts { observe, keep_states, follow: follow_of(follow)? };
+    let pool = search::pool(threads);
+    let g = &game.inner;
+    let leaves =
+        py.detach(|| search::simulate(g, view, &rows, &cols, &cells, seed, &opts, &pool)).map_err(failed)?;
+    leaves_out(py, leaves)
+}
+
+/// The equilibrium of a zero-sum matrix (m × n float32, the value to the row player) by
+/// regret matching+: `(x, y, value, gap, iters)`. The true value is within half the gap of `value`.
+#[pyfunction]
+#[pyo3(signature = (matrix, max_iter=5000, tol=1e-4))]
+fn solve<'py>(
+    py: Python<'py>,
+    matrix: PyReadonlyArray2<'py, f32>,
+    max_iter: usize,
+    tol: f64,
+) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>, f64, f64, usize)> {
+    let shape = matrix.as_array().shape().to_vec();
+    let (m, n) = (shape[0], shape[1]);
+    if m == 0 || n == 0 {
+        return Err(PyValueError::new_err("an empty matrix has no equilibrium"));
+    }
+    let a = matrix.as_slice().map_err(|_| PyValueError::new_err("the matrix must be a C-contiguous float32 array"))?;
+    let s = py.detach(|| search::solve(a, m, n, SolveOpts { max_iter, tol }));
+    Ok((PyArray1::from_vec(py, s.x), PyArray1::from_vec(py, s.y), s.value, s.gap, s.iters))
+}
+
+/// The hand score of each leaf summary (n × SUMMARY float32) for the viewer, in [-1, 1]: HP
+/// left less the other side's, `faint_bonus` per Pokémon standing, `terminal_bonus` for a win.
+#[pyfunction]
+#[pyo3(signature = (summary, faint_bonus=1.0, terminal_bonus=10.0))]
+fn hand_value<'py>(
+    py: Python<'py>,
+    summary: PyReadonlyArray2<'py, f32>,
+    faint_bonus: f32,
+    terminal_bonus: f32,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    if summary.as_array().shape()[1] != SUMMARY {
+        return Err(PyValueError::new_err(format!("a summary has {SUMMARY} numbers")));
+    }
+    let s = summary.as_slice().map_err(|_| PyValueError::new_err("the summary must be a C-contiguous float32 array"))?;
+    let values = s.chunks(SUMMARY).map(|row| search::hand_value(row, faint_bonus, terminal_bonus)).collect();
+    Ok(PyArray1::from_vec(py, values))
+}
+
+/// A side's joint actions with the likeliest first, without a model: the engine's greedy
+/// pick, then its look-ahead pick, then the rest in the engine's order.
+#[pyfunction]
+fn heuristic_order(game: &PyGame, side: usize, seed: u64) -> PyResult<Vec<(usize, usize)>> {
+    let mut rng = Rng { seed, calls: 0 };
+    Ok(search::heuristic_order(&game.inner, side_index(side)?, &mut rng).into_iter().map(|a| (a[0], a[1])).collect())
+}
+
+/// The double oracle from a position (see `vgc_engine::search::oracle`). Drive it:
+/// `advance()` says "need_cells" until the cells `wanted()` names have been played
+/// (`simulate`) and valued (`supply`); then it says how it ended.
+#[pyclass(name = "Search", skip_from_py_object)]
+struct PySearch {
+    inner: search::Search,
+}
+
+#[pymethods]
+impl PySearch {
+    /// `rows`: the viewer's joint actions, likeliest first; `cols`: the other side's.
+    /// `candidates`: `None` for every action at each oracle step, or the next so many.
+    #[new]
+    #[pyo3(signature = (
+        game, view, rows, cols, seed, candidates=None, seeds=16, initial=1, max_steps=None, time_cap=None, eps=1e-3,
+        max_iter=5000, tol=1e-4
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        game: &PyGame,
+        view: usize,
+        rows: Vec<(usize, usize)>,
+        cols: Vec<(usize, usize)>,
+        seed: u64,
+        candidates: Option<usize>,
+        seeds: usize,
+        initial: usize,
+        max_steps: Option<usize>,
+        time_cap: Option<f64>,
+        eps: f64,
+        max_iter: usize,
+        tol: f64,
+    ) -> PyResult<Self> {
+        let budget = Budget {
+            candidates: match candidates {
+                None => Candidates::All,
+                Some(m) => Candidates::Next(m),
+            },
+            seeds,
+            initial,
+            max_steps: max_steps.unwrap_or(usize::MAX),
+            time_cap: time_cap.map(std::time::Duration::from_secs_f64),
+            eps,
+            solver: SolveOpts { max_iter, tol },
+        };
+        let (view, rows, cols) = (side_index(view)?, pairs(rows), pairs(cols));
+        let inner = search::Search::new(game.inner.clone(), view, rows, cols, budget, seed).map_err(failed)?;
+        Ok(PySearch { inner })
+    }
+
+    /// The cells the next step needs, as an n × 3 int32 array (row, column, seed).
+    fn wanted<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let w = self.inner.wanted();
+        let flat: Vec<i32> = w.iter().flat_map(|c| [c.row as i32, c.col as i32, c.seed as i32]).collect();
+        Ok(PyArray1::from_vec(py, flat).reshape([w.len(), 3])?.into_any())
+    }
+
+    /// Plays `cells` from the root (the module's `simulate` with this search's lists and seed).
+    #[pyo3(signature = (cells, observe=true, keep_states=false, follow="end_of_turn", threads=0))]
+    fn simulate<'py>(
+        &self,
+        py: Python<'py>,
+        cells: PyReadonlyArray2<'py, i32>,
+        observe: bool,
+        keep_states: bool,
+        follow: &str,
+        threads: usize,
+    ) -> PyResult<LeavesOut<'py>> {
+        let cells = cells_of(&cells)?;
+        let opts = SimOpts { observe, keep_states, follow: follow_of(follow)? };
+        let pool = search::pool(threads);
+        let s = &self.inner;
+        let leaves = py.detach(|| s.simulate(&cells, &opts, &pool)).map_err(failed)?;
+        leaves_out(py, leaves)
+    }
+
+    /// Takes in one value per cell (float32, in [-1, 1] by convention), replacing any it had.
+    fn supply(&mut self, cells: PyReadonlyArray2<'_, i32>, values: PyReadonlyArray1<'_, f32>) -> PyResult<()> {
+        let cells = cells_of(&cells)?;
+        let values = values.as_slice().map_err(|_| PyValueError::new_err("values must be a contiguous float32 array"))?;
+        self.inner.supply(&cells, values).map_err(failed)
+    }
+
+    /// Moves the search on as far as it can: "need_cells", "converged", "converged_partial"
+    /// (a window of candidates was never widened to every action), "capped_steps" or "capped_time".
+    fn advance(&mut self, py: Python<'_>) -> &'static str {
+        let s = &mut self.inner;
+        status_name(py.detach(|| s.advance()))
+    }
+
+    /// Asks for `extra` more sets of dice for a cell; the search solves again before it goes on.
+    fn deepen(&mut self, row: usize, col: usize, extra: usize) -> PyResult<()> {
+        self.inner.deepen(row, col, extra).map_err(failed)
+    }
+
+    #[getter]
+    fn rows(&self) -> Vec<(usize, usize)> {
+        self.inner.rows().iter().map(|a| (a[0], a[1])).collect()
+    }
+
+    #[getter]
+    fn cols(&self) -> Vec<(usize, usize)> {
+        self.inner.cols().iter().map(|a| (a[0], a[1])).collect()
+    }
+
+    #[getter]
+    fn view(&self) -> usize {
+        self.inner.view()
+    }
+
+    #[getter]
+    fn done(&self) -> bool {
+        self.inner.is_done()
+    }
+
+    /// What the search found, as a dict: `rows_in`, `cols_in` (indices into the lists),
+    /// `x`, `y` (the mixes over them), `value`, `gap`, `cells` (arrays `row`, `col`, `n`,
+    /// `mean`, `std` over every cell with a value), `supp_mass`, `steps`, `leaves`,
+    /// `elapsed` (seconds), `status` (`None` while going) and `scanned`.
+    fn report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let r = self.inner.report();
+        let d = PyDict::new(py);
+        d.set_item("rows_in", r.rows_in)?;
+        d.set_item("cols_in", r.cols_in)?;
+        d.set_item("x", PyArray1::from_vec(py, r.x))?;
+        d.set_item("y", PyArray1::from_vec(py, r.y))?;
+        d.set_item("value", r.value)?;
+        d.set_item("gap", r.gap)?;
+        let cells = PyDict::new(py);
+        cells.set_item("row", PyArray1::from_vec(py, r.cells.iter().map(|c| c.row as i32).collect()))?;
+        cells.set_item("col", PyArray1::from_vec(py, r.cells.iter().map(|c| c.col as i32).collect()))?;
+        cells.set_item("n", PyArray1::from_vec(py, r.cells.iter().map(|c| c.n as i32).collect()))?;
+        cells.set_item("mean", PyArray1::from_vec(py, r.cells.iter().map(|c| c.mean).collect()))?;
+        cells.set_item("std", PyArray1::from_vec(py, r.cells.iter().map(|c| c.std).collect()))?;
+        d.set_item("cells", cells)?;
+        d.set_item("supp_mass", (r.supp_mass[0], r.supp_mass[1]))?;
+        d.set_item("steps", r.steps)?;
+        d.set_item("leaves", r.leaves)?;
+        d.set_item("elapsed", r.elapsed.as_secs_f64())?;
+        d.set_item("status", r.status.map(status_name))?;
+        d.set_item("scanned", (r.scanned[0], r.scanned[1]))?;
+        Ok(d)
+    }
+}
+
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySearch>()?;
+    m.add_function(wrap_pyfunction!(simulate, m)?)?;
+    m.add_function(wrap_pyfunction!(solve, m)?)?;
+    m.add_function(wrap_pyfunction!(hand_value, m)?)?;
+    m.add_function(wrap_pyfunction!(heuristic_order, m)?)?;
     m.add_class::<PyVecEnv>()?;
     m.add_class::<PyFollower>()?;
     m.add_class::<PyBattle>()?;

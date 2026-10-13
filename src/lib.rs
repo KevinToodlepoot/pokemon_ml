@@ -25,6 +25,7 @@ pub mod replay;
 #[rustfmt::skip]
 mod tables;
 pub mod rng;
+pub mod search;
 pub mod shown;
 pub mod speed;
 pub mod state;

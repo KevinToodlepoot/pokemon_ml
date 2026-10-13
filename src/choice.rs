@@ -552,6 +552,15 @@ impl Battle {
         out
     }
 
+    /// Whether the turn has been played to its end. A switch request in the
+    /// middle of a turn (U-turn, Eject Button) still has the end of the turn
+    /// queued; a request for replacing the fainted after it does not.
+    pub fn turn_over(&self) -> bool {
+        self.ended
+            || self.request != Request::Switch
+            || !self.queue.as_slice().iter().any(|a| a.kind == ActKind::Residual)
+    }
+
     /// Submits both sides' choices and runs the battle to the next request (or the end).
     /// A side that is not being asked anything passes in both slots.
     pub fn choose(&mut self, choices: [[Choice; ACTIVE]; 2]) -> Result<(), Error> {
