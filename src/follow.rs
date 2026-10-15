@@ -3485,7 +3485,8 @@ impl Follower {
     /// its end; closed sheets (nothing to complete the other side from); a
     /// Pokémon of the other side that may be in disguise (who it is is not
     /// known); a transformed Pokémon; a switch in the middle of a turn (the
-    /// rest of the turn is not here to play out).
+    /// rest of the turn is not here to play out); waiting while the other side
+    /// chooses (nothing to decide, and who it replaces is not said).
     pub fn game_state(&self) -> Result<GameState, String> {
         let rosters = self.rosters();
         let sets = |team: &[PokemonSet]| team.iter().map(ShowdownSet::from_set).collect::<Vec<_>>();
@@ -3504,7 +3505,12 @@ impl Follower {
         if self.ended {
             return err("battle over");
         }
-        if matches!(req.asked, Asked::Switch | Asked::Wait) && !self.upkept {
+        if req.asked == Asked::Wait {
+            // (The other side is choosing: this side has nothing to decide, and its request does not
+            // say who on the other side is being replaced, as after an Emergency Exit at the turn's end.)
+            return err("waiting for the other side");
+        }
+        if req.asked == Asked::Switch && !self.upkept {
             return err("a switch in the middle of a turn");
         }
         let mut b = self.battle.ok_or("no battle rebuilt")?;

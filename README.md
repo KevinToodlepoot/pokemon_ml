@@ -229,7 +229,7 @@ cannot know is left for a belief over worlds to draw (the other side's
 stat points, the Pokémon it has not shown, hidden lengths, the dice); what
 the follower cannot export it refuses with a reason: closed sheets, a
 Pokémon that may be in disguise, a transformed one, a switch in the middle
-of a turn.
+of a turn, a wait while the other side chooses.
 
 `replay::walk_follow` plays a recorded battle beside a follower for each
 side and visits every decision (`check_follow` is built on it), and

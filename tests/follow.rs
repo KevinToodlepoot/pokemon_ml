@@ -694,7 +694,8 @@ fn a_followers_game_state_loads_observes_as_it_does_and_counts_as_the_game_does(
     assert!(seen * 100 <= exported, "{seen} of {exported}: {:#?}", tally.first);
     assert!(counted * 100 <= exported, "{counted} of {exported}: {:#?}", tally.first);
     println!("observed differently {seen} and counts differ {counted} of {exported} exports");
-    let known = ["Illusion", "Transform", "a switch in the middle of a turn", "closed team sheets"];
+    let known =
+        ["Illusion", "Transform", "a switch in the middle of a turn", "closed team sheets", "waiting for the other side"];
     assert!(tally.refused.keys().all(|why| known.contains(&why.as_str())), "{:?}", tally.refused);
     println!("{battles} battles, {} exports, refused {:?}", tally.asked, tally.refused);
 }
