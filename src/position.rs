@@ -1069,16 +1069,21 @@ impl Kind for VolKind {
         self.data()
     }
     fn holds_move(self) -> bool {
-        matches!(
-            self,
-            VolKind::Choicelock
-                | VolKind::Metronome
-                | VolKind::Encore
-                | VolKind::Disable
-                | VolKind::Lockedmove
-                | VolKind::Twoturnmove
-        )
+        vol_holds_move(self)
     }
+}
+
+/// Whether a volatile condition's `data` is a move (table index plus one).
+pub(crate) fn vol_holds_move(kind: VolKind) -> bool {
+    matches!(
+        kind,
+        VolKind::Choicelock
+            | VolKind::Metronome
+            | VolKind::Encore
+            | VolKind::Disable
+            | VolKind::Lockedmove
+            | VolKind::Twoturnmove
+    )
 }
 
 const ACTION_KINDS: [(ActKind, &str); 12] = [

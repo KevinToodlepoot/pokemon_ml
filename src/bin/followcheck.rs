@@ -1,16 +1,21 @@
 //! Checks the log follower against recorded Showdown battles.
 //!
-//!     followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json]
+//!     followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json] [--export]
 //!
 //! The battles must have been recorded with their logs and requests
 //! (`oracle/gen_cases.js --log --requests`). Each is played in the
 //! simulator, and beside it a follower for each side reads what Showdown
 //! sent that side. Printed: how many observations were compared, how many
 //! differed, and which features differed how often.
+//!
+//! `--export` also takes each follower's `game_state` at every decision
+//! (`replay::check_export`): it must load, list both sides' choices and
+//! observe as its follower does; its counts of hidden-length effects are
+//! compared with the game's, and refusals are counted by reason.
 
 use std::io::{BufRead, BufReader};
 
-use vgc_engine::replay::{FollowCase, FollowTally, Outcome, check_follow};
+use vgc_engine::replay::{ExportTally, FollowCase, FollowTally, Outcome, check_export, check_follow};
 
 fn main() {
     let mut files = Vec::new();
@@ -20,6 +25,7 @@ fn main() {
     let mut report = None;
     let mut records = Vec::new();
     let mut list = false;
+    let mut export = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--limit" {
@@ -30,6 +36,8 @@ fn main() {
             // Write the battles followed back out with only what this check reads.
             let path = args.next().expect("--slim takes a file to write");
             slim = Some(std::fs::File::create(&path).unwrap_or_else(|e| panic!("cannot write {path}: {e}")));
+        } else if arg == "--export" {
+            export = Some(ExportTally::default());
         } else if arg == "--list" {
             // The first difference of every battle that has one.
             list = true;
@@ -69,6 +77,15 @@ fn main() {
                 tally.first_wrong.len(),
             );
             let outcome = check_follow(&case, &mut tally);
+            if let Some(ex) = export.as_mut()
+                && matches!(outcome, Outcome::Pass(_))
+                && let Outcome::Fail(why) = check_export(&case, ex)
+            {
+                ex.broken += 1;
+                if ex.first.len() < 20 {
+                    ex.first.push(format!("battle {}: {}", case.id, why.join("; ")));
+                }
+            }
             if report.is_some() {
                 let (status, decisions, errors) = match &outcome {
                     Outcome::Pass(n) => ("followed", *n, Vec::new()),
@@ -147,7 +164,27 @@ fn main() {
         std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
             .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));
     }
-    if !failed.is_empty() || tally.wrong > 0 {
+    let mut bad_export = false;
+    if let Some(ex) = &export {
+        println!(
+            "export: {} decisions asked, {} refused {:?}, {} broken, {} observe differently from their follower, \
+             {} with counts unlike the game's",
+            ex.asked,
+            ex.refused.values().sum::<usize>(),
+            ex.refused,
+            ex.broken,
+            ex.observed_differently,
+            ex.counts_differ
+        );
+        for first in ex.first.iter().take(10) {
+            println!("  export: {first}");
+        }
+        // (An export that observes otherwise than its follower is reported, not failed: the search
+        // chooses only among what the request allows. Measured at S3.3: none on skilled-play
+        // recordings, under 1% on the regression fixtures.)
+        bad_export = ex.broken > 0;
+    }
+    if !failed.is_empty() || tally.wrong > 0 || bad_export {
         std::process::exit(1);
     }
 }

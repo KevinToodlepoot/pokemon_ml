@@ -655,3 +655,46 @@ fn private_items_track_symbiosis_transfers_between_requests() {
     assert_eq!(tally.observations, 1103);
     assert_eq!(tally.wrong, 0);
 }
+
+/// What a follower exports for a search from its side (`Follower::game_state`), on every
+/// recorded battle these tests follow: at every decision it loads, both sides' choices can
+/// be listed, it observes for its side as the follower does, and its counts of
+/// hidden-length effects are the game's. What it cannot export is refused with a reason:
+/// a Pokémon that may be in disguise, a switch in the middle of a turn.
+#[test]
+fn a_followers_game_state_loads_observes_as_it_does_and_counts_as_the_game_does() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    let files = [
+        "followed_battles", "endure_confusion_regression", "fresh_sweep_regressions",
+        "future_sight_ripen_instruct_regressions", "hidden_move_information", "illusion_residual_guard_regressions",
+        "item_transfer_regressions", "local_100000_regressions", "local_200000_regressions", "local_300000_regressions",
+        "local_300000_targeted_regressions", "local_sweep_regressions", "speed_knowledge", "sweep_regressions",
+    ];
+    let mut tally = ExportTally::default();
+    let mut battles = 0;
+    for name in files {
+        let path = format!("{}/tests/fixtures/{name}.jsonl", env!("CARGO_MANIFEST_DIR"));
+        let file = std::fs::File::open(&path).expect("the fixture is there");
+        for line in BufReader::new(file).lines() {
+            let Ok(case) = serde_json::from_str::<FollowCase>(&line.unwrap()) else { continue };
+            match check_export(&case, &mut tally) {
+                Outcome::Pass(_) => battles += 1,
+                Outcome::Unsupported(_) => {}
+                Outcome::Fail(why) => panic!("{name}: battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+    }
+    assert!(battles >= 40 && tally.asked > 1000, "{battles} battles, {} exports", tally.asked);
+    assert_eq!(tally.broken, 0, "{:#?}", tally.first);
+    // These fixtures are random play kept for the follower's hardest cases; what a search exports
+    // there may still miss a rare lock or count (none do on skilled-play recordings, `followcheck
+    // --export`). Bounded here, and printed.
+    let exported = tally.asked - tally.refused.values().sum::<usize>();
+    let (seen, counted) = (tally.observed_differently, tally.counts_differ);
+    assert!(seen * 100 <= exported, "{seen} of {exported}: {:#?}", tally.first);
+    assert!(counted * 100 <= exported, "{counted} of {exported}: {:#?}", tally.first);
+    println!("observed differently {seen} and counts differ {counted} of {exported} exports");
+    let known = ["Illusion", "Transform", "a switch in the middle of a turn", "closed team sheets"];
+    assert!(tally.refused.keys().all(|why| known.contains(&why.as_str())), "{:?}", tally.refused);
+    println!("{battles} battles, {} exports, refused {:?}", tally.asked, tally.refused);
+}

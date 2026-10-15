@@ -215,6 +215,14 @@ impl PyFollower {
         self.inner.choice([first, second]).map_err(PyRuntimeError::new_err)
     }
 
+    /// This player's side of the battle as a game state (JSON that `Game.from_state` reads), for
+    /// a search from what the player knows (see `Follower::game_state` in the engine). Raises
+    /// `ValueError` with the reason where it cannot be had (Illusion, Transform, closed sheets,
+    /// a switch in the middle of a turn, before the first request or after the end).
+    fn game_state(&self) -> PyResult<String> {
+        self.inner.game_state().map(|s| s.to_json()).map_err(PyValueError::new_err)
+    }
+
     /// "preview", "move" or "switch": what the last request asks; `None` if there is none.
     #[getter]
     fn phase(&self) -> Option<&'static str> {
@@ -965,8 +973,62 @@ impl PySearch {
     }
 }
 
+/// Plays a recorded battle (one line of a `--record` file, as JSON) in a game beside a follower
+/// for each side, as `followcheck` does, and returns what each side had at every decision: a
+/// dict with `step`, `side`, `phase` (the follower's: "preview", "move" or "switch"), `truth`
+/// (the game's state, JSON), `export` (the follower's `game_state`, or `None`), `refused` (why
+/// not, or `None`) and `hidden_disable` (the side is barred by something it was not shown, where
+/// followcheck compares nothing). Raises if the battle cannot be followed.
+#[pyfunction]
+fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    let c: crate::replay::FollowCase =
+        serde_json::from_str(case).map_err(|e| PyValueError::new_err(format!("unreadable recording: {e}")))?;
+    type Row = (usize, usize, Option<&'static str>, String, Result<String, String>, bool);
+    let mut rows: Vec<Row> = Vec::new();
+    let outcome = crate::replay::walk_follow(&c, &mut |game, followers, step| {
+        for (side, follower) in followers.iter().enumerate() {
+            let phase = follower.phase().map(|p| match p {
+                Phase::Preview => "preview",
+                Phase::Move => "move",
+                Phase::Switch => "switch",
+            });
+            let export = follower.game_state().map(|s| s.to_json());
+            let hidden = crate::replay::hidden_disable(game, side);
+            rows.push((step, side, phase, game.to_state().to_json(), export, hidden));
+        }
+        Ok(())
+    });
+    match outcome {
+        crate::replay::Outcome::Pass(_) => {}
+        crate::replay::Outcome::Unsupported(what) => return Err(PyValueError::new_err(format!("unsupported: {what}"))),
+        crate::replay::Outcome::Fail(why) => return Err(PyRuntimeError::new_err(why.join("; "))),
+    }
+    rows.into_iter()
+        .map(|(step, side, phase, truth, export, hidden)| {
+            let d = PyDict::new(py);
+            d.set_item("step", step)?;
+            d.set_item("side", side)?;
+            d.set_item("phase", phase)?;
+            d.set_item("truth", truth)?;
+            match export {
+                Ok(json) => {
+                    d.set_item("export", json)?;
+                    d.set_item("refused", py.None())?;
+                }
+                Err(why) => {
+                    d.set_item("export", py.None())?;
+                    d.set_item("refused", why)?;
+                }
+            }
+            d.set_item("hidden_disable", hidden)?;
+            Ok(d)
+        })
+        .collect()
+}
+
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(follow_case_states, m)?)?;
     m.add_class::<PySearch>()?;
     m.add_function(wrap_pyfunction!(simulate, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;

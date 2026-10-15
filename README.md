@@ -208,6 +208,40 @@ From Python: `Search(game, view, rows, cols, seed, ...)` with `wanted()`,
 the functions `simulate`, `solve`, `hand_value` and `heuristic_order`, and
 `Game.reseed` / `Game.turn_over`.
 
+### Searching from what one player has seen on Showdown
+
+A player on Showdown has no game state, only a log and requests; a search
+from its side starts from `Follower::game_state()` (Python:
+`Follower.game_state()`, JSON for `Game.from_state`). The follower's battle
+is right in what the observation reads and no further; the export
+completes it from what the player has been told: the other side's Pokémon
+from their open sheets (moves and the PP the log shows spent, items and
+abilities as shown or else as the sheet has them, stat points of 0 with HP
+the least that shows the percentage and bar), the Pokémon not yet seen as
+the sheet's entries not yet seen, the turns each weather, terrain, screen
+and condition has left, what a condition is about (an Encore's move, a
+Choice lock, a rampage, a charging move and its aim), how each Pokémon's
+moves have gone (Stomping Tantrum, Rage Fist, Fake Out, Last Resort,
+Retaliate, an item used up or eaten), and how far the effects with a
+hidden length have run (`env::Counts`). It goes out without the
+simulator's bookkeeping, which the engine works out again. What a player
+cannot know is left for a belief over worlds to draw (the other side's
+stat points, the Pokémon it has not shown, hidden lengths, the dice); what
+the follower cannot export it refuses with a reason: closed sheets, a
+Pokémon that may be in disguise, a transformed one, a switch in the middle
+of a turn.
+
+`replay::walk_follow` plays a recorded battle beside a follower for each
+side and visits every decision (`check_follow` is built on it), and
+`replay::check_export` checks the export there: it loads, lists both sides'
+choices, observes for its side as the follower does, and counts the
+hidden-length effects as the game does. `followcheck --export` runs it on
+recordings; from Python, `follow_case_states(case)` returns the game's state
+and each follower's export at every decision, for comparing what a search
+would start from with the truth. On 1,000 skilled-play battles every export
+loads and observes as its follower does; on the regression fixtures of
+`tests/follow.rs` a few rare locks and counts are still missed (under 1%).
+
 ## Legal teams and regulations
 
 What a regulation allows is data, one file per regulation in `formats/`,

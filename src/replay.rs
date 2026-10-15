@@ -1328,7 +1328,7 @@ fn id_name(index: usize) -> String {
 /// something its player has not been shown (a foe's Imprison, a Shadow Tag not yet announced).
 /// Showdown then offers the choice all the same and refuses it when it is tried; the game
 /// does not offer it.
-fn hidden_disable(game: &crate::env::Game, side: usize) -> bool {
+pub fn hidden_disable(game: &crate::env::Game, side: usize) -> bool {
     let Some(b) = game.battle() else { return false };
     b.request == Request::Move
         && (0..ACTIVE).any(|pos| {
@@ -1386,47 +1386,6 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
     use crate::env::{Game, OBS_M};
     use crate::follow::Follower;
     use crate::obs::{OBS_F, OBS_I};
-    let (rosters, picks) = (&c.rosters, &c.picks);
-    let sets: Result<Vec<Vec<PokemonSet>>, String> =
-        rosters.iter().map(|t| t.iter().map(SetJson::to_set).collect()).collect();
-    let sets = match sets {
-        Ok(sets) => sets,
-        Err(e) => return Outcome::Fail(vec![e]),
-    };
-    if c.initial.requests.len() != 2 {
-        return Outcome::Unsupported("a battle recorded without its requests".into());
-    }
-    let mut game = match Game::new([sets[0].clone(), sets[1].clone()], c.open_sheets) {
-        Ok(game) => game,
-        Err(Error::Unsupported(what)) => return Outcome::Unsupported(what),
-        Err(e) => return Outcome::Fail(vec![e.to_string()]),
-    };
-    // The recorder gives each Pokémon a name of its own, which the first request has
-    // for those brought. (Its teams can have a species twice, which no ladder allows.)
-    let names = |side: usize| -> Vec<String> {
-        let mut out = vec![String::new(); sets[side].len()];
-        let listed = c.initial.requests[side]["side"]["pokemon"].as_array();
-        for (k, mon) in listed.into_iter().flatten().enumerate() {
-            let name = mon["ident"].as_str().and_then(|i| i.split_once(": ")).map(|(_, n)| n.to_string());
-            if let (Some(name), Some(&j)) = (name, picks[side].get(k)) {
-                out[j] = name;
-            }
-        }
-        out
-    };
-    let mut followers = match (Follower::new(0, sets[0].clone()), Follower::new(1, sets[1].clone())) {
-        (Ok(a), Ok(b)) => [a.with_names(names(0)), b.with_names(names(1))],
-        (Err(e), _) | (_, Err(e)) => return Outcome::Fail(vec![e]),
-    };
-    // The recorder's teams do not all keep the item clause, and the game knows which do.
-    let clause = crate::format::Format::current().team.item_clause == 1;
-    for side in 0..2 {
-        let team = &sets[1 - side];
-        let once =
-            team.iter().enumerate().all(|(k, a)| a.item == it::NONE || team[..k].iter().all(|b| b.item != a.item));
-        followers[side].trust_item_clause(clause && once);
-    }
-    let mut decisions = 0;
     let mut differed = false;
     let mut compare = |game: &Game, followers: &[Follower; 2], step: usize| -> Result<(), String> {
         let (mut f, mut i, mut m) = (
@@ -1485,6 +1444,168 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
         }
         Ok(())
     };
+    walk_follow(c, &mut compare)
+}
+
+/// What [`check_export`] found over recorded battles.
+#[derive(Default, Debug)]
+pub struct ExportTally {
+    /// Decisions at which a follower's [`game_state`](crate::follow::Follower::game_state) was asked for.
+    pub asked: usize,
+    /// Exports refused, by reason.
+    pub refused: std::collections::BTreeMap<String, usize>,
+    /// Exports that did not load, or whose game could not list a side's choices.
+    pub broken: usize,
+    /// Exports that observe differently from the follower that made them.
+    pub observed_differently: usize,
+    /// Exports whose counts of hidden-length effects differ from the game's, Pokémon by Pokémon.
+    pub counts_differ: usize,
+    pub first: Vec<String>,
+}
+
+/// Follows a recorded battle as [`check_follow`] does and, at every decision of
+/// each side (where nothing barred is hidden from it), takes the follower's
+/// [`game_state`](crate::follow::Follower::game_state): it must load, list both
+/// sides' choices, observe for that side as the follower does, and count the
+/// hidden-length effects as the game does (each Pokémon found by its sheet entry,
+/// since the follower numbers the other side's in the order they appeared).
+pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
+    use crate::env::{Game, OBS_M};
+    use crate::obs::{OBS_F, OBS_I};
+    // A team with a species twice (which no ladder allows, and the harness will not follow): the
+    // other side's Pokémon cannot be told apart by their sheets, so there is no export to check.
+    let twice = c.rosters.iter().any(|team| {
+        let species: Vec<&str> = team.iter().map(|s| s.species.as_str()).collect();
+        species.iter().enumerate().any(|(k, a)| species[..k].contains(a))
+    });
+    if twice {
+        return Outcome::Unsupported("a team with a species twice".into());
+    }
+    let mut visit = |game: &Game, followers: &[crate::follow::Follower; 2], step: usize| -> Result<(), String> {
+        for (side, follower) in followers.iter().enumerate() {
+            if hidden_disable(game, side) || follower.phase().is_none() {
+                continue;
+            }
+            tally.asked += 1;
+            let at = format!("battle {} step {step} side {side}", c.id);
+            let note = |tally: &mut ExportTally, what: String| {
+                if tally.first.len() < 20 {
+                    tally.first.push(format!("{at}: {what}"));
+                }
+            };
+            let st = match follower.game_state() {
+                Ok(st) => st,
+                Err(why) => {
+                    *tally.refused.entry(why).or_insert(0) += 1;
+                    continue;
+                }
+            };
+            let export = match Game::from_state(&st) {
+                Ok(g) => g,
+                Err(e) => {
+                    tally.broken += 1;
+                    note(tally, format!("does not load: {e}"));
+                    continue;
+                }
+            };
+            let Some(b) = export.battle() else { continue };
+            let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (export.legal(0), export.legal(1))));
+            if listed.is_err() {
+                tally.broken += 1;
+                note(tally, "its game cannot list a side's choices".into());
+                continue;
+            }
+            let (mut f, mut i, mut m) = (
+                [vec![0f32; OBS_F], vec![0f32; OBS_F]],
+                [vec![0i16; OBS_I], vec![0i16; OBS_I]],
+                [vec![0u8; OBS_M], vec![0u8; OBS_M]],
+            );
+            export.observe(side, &mut f[0], &mut i[0], &mut m[0]);
+            follower.observe(&mut f[1], &mut i[1], &mut m[1])?;
+            if f[0] != f[1] || i[0] != i[1] || m[0] != m[1] {
+                tally.observed_differently += 1;
+                note(tally, "observes differently from its follower".into());
+            }
+            // The counts, Pokémon by Pokémon: the follower's other side is numbered by appearance.
+            let Some(truth) = game.battle() else { continue };
+            let (mine, theirs) = (export.counts(), game.counts());
+            let mut differ = false;
+            for s in 0..2 {
+                for idx in 0..b.sides[s].n as usize {
+                    let j = (0..b.sides[s].n_roster as usize).find(|&j| b.sides[s].roster[j].brought == idx as u8);
+                    let Some(t) = j.map(|j| truth.sides[s].roster[j].brought) else { continue };
+                    let t = t as usize;
+                    if t >= truth.sides[s].n as usize {
+                        continue;
+                    }
+                    let a = [mine.sleep[s][idx], mine.confusion[s][idx], mine.rampage[s][idx], mine.trap[s][idx]];
+                    let z = [theirs.sleep[s][t], theirs.confusion[s][t], theirs.rampage[s][t], theirs.trap[s][t]];
+                    if a != z {
+                        differ = true;
+                        note(tally, format!("counts of side {s} #{idx}: the follower's {a:?}, the game's {z:?}"));
+                    }
+                }
+            }
+            tally.counts_differ += differ as usize;
+        }
+        Ok(())
+    };
+    walk_follow(c, &mut visit)
+}
+
+/// Plays a recorded battle in a [`Game`](crate::env::Game) beside a
+/// [`Follower`](crate::follow::Follower) for each side, as [`check_follow`]
+/// does, and calls `visit` at every decision (Team Preview, then each request)
+/// with the game, the followers and the step. An error from `visit` fails the
+/// battle.
+#[allow(clippy::needless_range_loop)]
+pub fn walk_follow(
+    c: &FollowCase,
+    visit: &mut dyn FnMut(&crate::env::Game, &[crate::follow::Follower; 2], usize) -> Result<(), String>,
+) -> Outcome {
+    use crate::env::Game;
+    use crate::follow::Follower;
+    let (rosters, picks) = (&c.rosters, &c.picks);
+    let sets: Result<Vec<Vec<PokemonSet>>, String> =
+        rosters.iter().map(|t| t.iter().map(SetJson::to_set).collect()).collect();
+    let sets = match sets {
+        Ok(sets) => sets,
+        Err(e) => return Outcome::Fail(vec![e]),
+    };
+    if c.initial.requests.len() != 2 {
+        return Outcome::Unsupported("a battle recorded without its requests".into());
+    }
+    let mut game = match Game::new([sets[0].clone(), sets[1].clone()], c.open_sheets) {
+        Ok(game) => game,
+        Err(Error::Unsupported(what)) => return Outcome::Unsupported(what),
+        Err(e) => return Outcome::Fail(vec![e.to_string()]),
+    };
+    // The recorder gives each Pokémon a name of its own, which the first request has
+    // for those brought. (Its teams can have a species twice, which no ladder allows.)
+    let names = |side: usize| -> Vec<String> {
+        let mut out = vec![String::new(); sets[side].len()];
+        let listed = c.initial.requests[side]["side"]["pokemon"].as_array();
+        for (k, mon) in listed.into_iter().flatten().enumerate() {
+            let name = mon["ident"].as_str().and_then(|i| i.split_once(": ")).map(|(_, n)| n.to_string());
+            if let (Some(name), Some(&j)) = (name, picks[side].get(k)) {
+                out[j] = name;
+            }
+        }
+        out
+    };
+    let mut followers = match (Follower::new(0, sets[0].clone()), Follower::new(1, sets[1].clone())) {
+        (Ok(a), Ok(b)) => [a.with_names(names(0)), b.with_names(names(1))],
+        (Err(e), _) | (_, Err(e)) => return Outcome::Fail(vec![e]),
+    };
+    // The recorder's teams do not all keep the item clause, and the game knows which do.
+    let clause = crate::format::Format::current().team.item_clause == 1;
+    for side in 0..2 {
+        let team = &sets[1 - side];
+        let once =
+            team.iter().enumerate().all(|(k, a)| a.item == it::NONE || team[..k].iter().all(|b| b.item != a.item));
+        followers[side].trust_item_clause(clause && once);
+    }
+    let mut decisions = 0;
     // With closed sheets a player takes the other team for a legal one. The recorder also
     // hands Illusion to Pokémon the regulation gives no such ability, and what a player
     // makes of those battles is not what the game, which knows better, makes of them.
@@ -1504,14 +1625,14 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
             followers[side].lines(&Follower::own_lines(side, &c.initial.log[..cut]))?;
         }
         if cut > 0 {
-            compare(&game, &followers, 0)?;
+            visit(&game, &followers, 0)?;
         }
         game.start([&picks[0], &picks[1]], c.seed).map_err(|e| e.to_string())?;
         for side in 0..2 {
             followers[side].lines(&Follower::own_lines(side, &c.initial.log[cut..]))?;
             followers[side].request(&c.initial.requests[side].to_string())?;
         }
-        compare(&game, &followers, 0)?;
+        visit(&game, &followers, 0)?;
         decisions += 1;
         for (k, step) in c.steps.iter().enumerate() {
             let parse = |s: &str| Choice::parse_side(s).ok_or_else(|| format!("unreadable choice {s:?}"));
@@ -1548,7 +1669,7 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
                 }
                 break;
             }
-            compare(&game, &followers, k + 1)?;
+            visit(&game, &followers, k + 1)?;
             decisions += 1;
         }
         Ok(())
