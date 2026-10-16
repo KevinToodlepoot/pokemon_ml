@@ -33,6 +33,20 @@ pub fn words(root_seed: u64, k: u32) -> [u16; 4] {
     Rng { seed: z ^ (z >> 31), calls: 0 }.words()
 }
 
+/// What each of a side's positions brings in if it is asked to switch in the
+/// middle of the turn (U-turn, Volt Switch, Parting Shot, an Eject Button):
+/// the engine action of the Pokémon to bring in (`40 + j` for the one
+/// registered `j`th), or [`NO_PLAN`] for one of the dice's choosing. A joint
+/// action with a plan is "U-turn into this Pokémon": one action, decided at
+/// the root, not a switch left to chance.
+pub type Plan = [u8; 2];
+/// No plan for a position: a random legal replacement from the cell's dice.
+pub const NO_PLAN: u8 = u8::MAX;
+/// No plan for either position.
+pub const NO_PLANS: Plan = [NO_PLAN, NO_PLAN];
+const SWITCH_LO: u8 = 40;
+const SWITCH_HI: u8 = 45;
+
 /// What a cell does when the engine asks for a switch before the leaf.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Follow {
@@ -158,6 +172,34 @@ struct Scratch {
     rng: Rng,
 }
 
+/// The replacement a side planned for a switch in the middle of the turn,
+/// where it is legal now: both positions' plans, else one of them with what
+/// the dice chose for the other, else the dice's choice.
+fn planned(g: &Game, side: usize, dice: [usize; 2], plan: Plan) -> [usize; 2] {
+    if plan == NO_PLANS {
+        return dice;
+    }
+    let legal = g.legal(side);
+    let want = |k: usize| if plan[k] == NO_PLAN { dice[k] } else { plan[k] as usize };
+    let tries = [[want(0), want(1)], [want(0), dice[1]], [dice[0], want(1)]];
+    tries.into_iter().find(|a| legal.contains(a)).unwrap_or(dice)
+}
+
+/// A plan is a switch action or none for each position.
+fn check_plans(plans: &[Plan], n: usize, what: &str) -> Result<(), Error> {
+    if !plans.is_empty() && plans.len() != n {
+        return Err(Error::BadChoice(format!("{what}: {} plans for {n} actions", plans.len())));
+    }
+    for p in plans {
+        for &k in p {
+            if k != NO_PLAN && !(SWITCH_LO..=SWITCH_HI).contains(&k) {
+                return Err(Error::BadChoice(format!("{what}: a plan names a switch action 40 to 45 or none, not {k}")));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scratch() -> Scratch {
     Scratch { mask: vec![0; OBS_M], rng: Rng { seed: 0, calls: 0 } }
 }
@@ -168,6 +210,7 @@ fn play(
     view: usize,
     mine: [usize; 2],
     theirs: [usize; 2],
+    plans: [Plan; 2],
     k: u32,
     root_seed: u64,
     opts: &SimOpts,
@@ -196,7 +239,13 @@ fn play(
         if !go_on {
             break;
         }
-        let a = [g.baseline(0, Baseline::Random, &mut sc.rng), g.baseline(1, Baseline::Random, &mut sc.rng)];
+        let mut a = [g.baseline(0, Baseline::Random, &mut sc.rng), g.baseline(1, Baseline::Random, &mut sc.rng)];
+        if !g.turn_over() {
+            // A switch in the middle of the turn: what the action planned, where it is legal.
+            for side in 0..2 {
+                a[side] = planned(&g, side, a[side], plans[side]);
+            }
+        }
         g.act(a, w)?;
     }
     let s = summarize(&g, view);
@@ -210,6 +259,8 @@ fn play(
 /// same order. `rows` are the viewer's joint actions and `cols` the other
 /// side's; `seed` names the dice ([`words`]). A cell whose actions the
 /// engine refuses is an error (the lists should come from [`Game::legal`]).
+/// Switches in the middle of the turn are the dice's ([`simulate_planned`]
+/// takes a plan per action).
 #[allow(clippy::too_many_arguments)]
 pub fn simulate(
     root: &Game,
@@ -221,6 +272,34 @@ pub fn simulate(
     opts: &SimOpts,
     pool: &ThreadPool,
 ) -> Result<Leaves, Error> {
+    simulate_planned(root, view, rows, cols, &[], &[], cells, seed, opts, pool)
+}
+
+/// [`simulate`] with a [`Plan`] per row and per column (empty lists for
+/// none): what each action brings in if its position is asked to switch in
+/// the middle of the turn. With no plans the leaves are exactly
+/// [`simulate`]'s.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_planned(
+    root: &Game,
+    view: usize,
+    rows: &[[usize; 2]],
+    cols: &[[usize; 2]],
+    row_plans: &[Plan],
+    col_plans: &[Plan],
+    cells: &[CellId],
+    seed: u64,
+    opts: &SimOpts,
+    pool: &ThreadPool,
+) -> Result<Leaves, Error> {
+    check_plans(row_plans, rows.len(), "rows")?;
+    check_plans(col_plans, cols.len(), "cols")?;
+    let plans_of = |c: &CellId| -> [Plan; 2] {
+        let mut p = [NO_PLANS; 2];
+        p[view] = row_plans.get(c.row as usize).copied().unwrap_or(NO_PLANS);
+        p[1 - view] = col_plans.get(c.col as usize).copied().unwrap_or(NO_PLANS);
+        p
+    };
     if view > 1 {
         return Err(Error::BadChoice("view is 0 or 1".into()));
     }
@@ -247,8 +326,8 @@ pub fn simulate(
             (cells.par_iter(), summary.par_chunks_mut(SUMMARY), f.par_chunks_mut(OBS_F), i.par_chunks_mut(OBS_I))
                 .into_par_iter()
                 .map_init(scratch, |sc, (c, s, f, i)| {
-                    let (summary, g) =
-                        play(root, view, rows[c.row as usize], cols[c.col as usize], c.seed, seed, opts, sc, f, i)?;
+                    let (mine, theirs) = (rows[c.row as usize], cols[c.col as usize]);
+                    let (summary, g) = play(root, view, mine, theirs, plans_of(c), c.seed, seed, opts, sc, f, i)?;
                     s.copy_from_slice(&summary);
                     Ok(g)
                 })
@@ -257,18 +336,9 @@ pub fn simulate(
             (cells.par_iter(), out.summary.par_chunks_mut(SUMMARY))
                 .into_par_iter()
                 .map_init(scratch, |sc, (c, s)| {
-                    let (summary, g) = play(
-                        root,
-                        view,
-                        rows[c.row as usize],
-                        cols[c.col as usize],
-                        c.seed,
-                        seed,
-                        opts,
-                        sc,
-                        &mut [],
-                        &mut [],
-                    )?;
+                    let (mine, theirs) = (rows[c.row as usize], cols[c.col as usize]);
+                    let (summary, g) =
+                        play(root, view, mine, theirs, plans_of(c), c.seed, seed, opts, sc, &mut [], &mut [])?;
                     s.copy_from_slice(&summary);
                     Ok(g)
                 })

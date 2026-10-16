@@ -31,7 +31,7 @@ use crate::battle::Error;
 use crate::env::{Baseline, Game};
 use crate::obs::Phase;
 use crate::rng::Rng;
-use crate::search::cell::{CellId, Leaves, SimOpts, simulate};
+use crate::search::cell::{CellId, Leaves, NO_PLANS, Plan, SimOpts, simulate_planned};
 use crate::search::solve::{SolveOpts, Solution, solve};
 
 /// Which actions outside the matrix an oracle step considers.
@@ -157,6 +157,9 @@ pub struct Search {
     view: usize,
     rows: Vec<[usize; 2]>,
     cols: Vec<[usize; 2]>,
+    /// A plan per row and per column (empty: none), see [`Plan`].
+    row_plans: Vec<Plan>,
+    col_plans: Vec<Plan>,
     budget: Budget,
     seed: u64,
     rows_in: Vec<usize>,
@@ -173,8 +176,10 @@ pub struct Search {
     scanned: [Vec<bool>; 2],
 }
 
-fn distinct(list: &[[usize; 2]]) -> bool {
-    let mut seen = list.to_vec();
+/// Whether every (action, plan) in a list is its own.
+fn distinct(list: &[[usize; 2]], plans: &[Plan]) -> bool {
+    let mut seen: Vec<([usize; 2], Plan)> =
+        list.iter().enumerate().map(|(k, a)| (*a, plans.get(k).copied().unwrap_or(NO_PLANS))).collect();
     seen.sort_unstable();
     seen.windows(2).all(|w| w[0] != w[1])
 }
@@ -191,6 +196,24 @@ impl Search {
         budget: Budget,
         seed: u64,
     ) -> Result<Search, Error> {
+        Search::with_plans(root, view, rows, cols, Vec::new(), Vec::new(), budget, seed)
+    }
+
+    /// [`Search::new`] with a [`Plan`] per row and per column (empty for
+    /// none): what each action brings in if its position is asked to switch
+    /// in the middle of the turn. The same action may be listed with
+    /// different plans; it is the pair that must be its own.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_plans(
+        root: Game,
+        view: usize,
+        rows: Vec<[usize; 2]>,
+        cols: Vec<[usize; 2]>,
+        row_plans: Vec<Plan>,
+        col_plans: Vec<Plan>,
+        budget: Budget,
+        seed: u64,
+    ) -> Result<Search, Error> {
         if view > 1 {
             return Err(Error::BadChoice("view is 0 or 1".into()));
         }
@@ -200,7 +223,11 @@ impl Search {
         if rows.is_empty() || cols.is_empty() {
             return Err(Error::BadChoice("each side needs at least one joint action".into()));
         }
-        if !distinct(&rows) || !distinct(&cols) {
+        if !row_plans.is_empty() && row_plans.len() != rows.len() || !col_plans.is_empty() && col_plans.len() != cols.len()
+        {
+            return Err(Error::BadChoice("a plan per action, or none".into()));
+        }
+        if !distinct(&rows, &row_plans) || !distinct(&cols, &col_plans) {
             return Err(Error::BadChoice("a joint action is listed twice".into()));
         }
         for (side, list) in [(view, &rows), (1 - view, &cols)] {
@@ -229,9 +256,19 @@ impl Search {
             scanned: [vec![false; m], vec![false; n]],
             rows,
             cols,
+            row_plans,
+            col_plans,
             budget,
             seed,
         })
+    }
+
+    /// The plan of each row and column (empty when none were given).
+    pub fn row_plans(&self) -> &[Plan] {
+        &self.row_plans
+    }
+    pub fn col_plans(&self) -> &[Plan] {
+        &self.col_plans
     }
 
     pub fn root(&self) -> &Game {
@@ -301,9 +338,10 @@ impl Search {
         out
     }
 
-    /// Plays `cells` from the root (see [`simulate`]).
+    /// Plays `cells` from the root (see [`simulate_planned`]).
     pub fn simulate(&self, cells: &[CellId], opts: &SimOpts, pool: &ThreadPool) -> Result<Leaves, Error> {
-        simulate(&self.root, self.view, &self.rows, &self.cols, cells, self.seed, opts, pool)
+        let (rows, cols, rp, cp) = (&self.rows, &self.cols, &self.row_plans, &self.col_plans);
+        simulate_planned(&self.root, self.view, rows, cols, rp, cp, cells, self.seed, opts, pool)
     }
 
     /// Takes in the value of each cell's leaf (in `[-1, 1]` by convention), one per cell, replacing any it had.

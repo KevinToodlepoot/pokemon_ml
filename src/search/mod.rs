@@ -26,7 +26,7 @@ pub mod cell;
 pub mod oracle;
 pub mod solve;
 
-pub use cell::{CellId, Follow, Leaves, SUMMARY, SimOpts, hand_value, pool, simulate, words};
+pub use cell::{CellId, Follow, Leaves, NO_PLAN, NO_PLANS, Plan, SUMMARY, SimOpts, hand_value, pool, simulate, simulate_planned, words};
 pub use oracle::{Budget, Candidates, Cap, CellStat, Report, Search, Status, heuristic_order, run};
 pub use solve::{SolveOpts, Solution, best_col, best_row, exploitability, solve};
 

@@ -1460,6 +1460,8 @@ pub struct ExportTally {
     pub observed_differently: usize,
     /// Exports whose counts of hidden-length effects differ from the game's, Pokémon by Pokémon.
     pub counts_differ: usize,
+    /// Exports where the other side's HP percentage or bar colour is not what the follower was shown.
+    pub hp_bar_differ: usize,
     pub first: Vec<String>,
 }
 
@@ -1525,6 +1527,16 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
             if f[0] != f[1] || i[0] != i[1] || m[0] != m[1] {
                 tally.observed_differently += 1;
                 note(tally, "observes differently from its follower".into());
+            }
+            // The other side's HP: the export's placeholders show the percentage and bar the
+            // follower was told (at exactly 20% or 50% the colour needs HP points to show).
+            let bars = |s: &crate::shown::ShownSide| -> Vec<(u8, crate::shown::Bar)> {
+                s.active.iter().flatten().chain(s.bench.iter()).map(|p| (p.hp, p.bar)).collect()
+            };
+            let (ours, theirs) = (bars(&b.shown(1 - side)), bars(&follower.shown(1 - side)));
+            if ours != theirs {
+                tally.hp_bar_differ += 1;
+                note(tally, format!("the other side's HP and bar: the export's {ours:?}, the follower's {theirs:?}"));
             }
             // The counts, Pokémon by Pokémon: the follower's other side is numbered by appearance.
             let Some(truth) = game.battle() else { continue };

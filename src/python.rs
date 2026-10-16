@@ -15,7 +15,7 @@ use crate::format::{Format, ShowdownSet};
 use crate::obs::{self, INFO, OBS_F, OBS_I, Phase, Table};
 use crate::position::BattleState;
 use crate::rng::Rng;
-use crate::search::{self, Budget, Candidates, Cap, CellId, Follow, Leaves, SUMMARY, SimOpts, SolveOpts, Status};
+use crate::search::{self, Budget, Candidates, Cap, CellId, Follow, Leaves, Plan, SUMMARY, SimOpts, SolveOpts, Status};
 use crate::state::{ACTIVE, Battle, Choice, Request};
 use crate::teams::{Pool, Variation};
 
@@ -702,6 +702,15 @@ fn pairs(v: Vec<(usize, usize)>) -> Vec<[usize; 2]> {
     v.into_iter().map(|(a, b)| [a, b]).collect()
 }
 
+/// Plans as given from Python: a pair per action (255 for none), or no list at all.
+fn plans_of(v: Option<Vec<(u8, u8)>>) -> Vec<Plan> {
+    v.unwrap_or_default().into_iter().map(|(a, b)| [a, b]).collect()
+}
+
+fn plans_out(v: &[Plan]) -> Vec<(u8, u8)> {
+    v.iter().map(|p| (p[0], p[1])).collect()
+}
+
 fn cells_of(cells: &PyReadonlyArray2<'_, i32>) -> PyResult<Vec<CellId>> {
     let shape = cells.as_array().shape().to_vec();
     if shape.len() != 2 || shape[1] != 3 {
@@ -753,10 +762,14 @@ fn leaves_out(py: Python<'_>, l: Leaves) -> PyResult<LeavesOut<'_>> {
 /// and `cols`, each side's joint actions) from `game` for `view`, and returns the
 /// leaves in the same order: `(f, i, summary, states)` (see `Leaves` in Rust). `follow`:
 /// what to do at a switch request before the leaf ("end_of_turn", "to_move", "none").
-/// Runs on `threads` worker threads (0: one per core) with the interpreter lock let go.
+/// `row_plans` / `col_plans`: per action, what each position brings in if it is asked to
+/// switch in the middle of the turn (the switch action 40–45, or 255 for the dice's
+/// choice), or `None` for no plans. Runs on `threads` worker threads (0: one per core)
+/// with the interpreter lock let go.
 #[pyfunction]
 #[pyo3(signature = (
-    game, view, rows, cols, cells, seed, observe=true, keep_states=false, follow="end_of_turn", threads=0
+    game, view, rows, cols, cells, seed, observe=true, keep_states=false, follow="end_of_turn", threads=0,
+    row_plans=None, col_plans=None
 ))]
 #[allow(clippy::too_many_arguments)]
 fn simulate<'py>(
@@ -771,14 +784,18 @@ fn simulate<'py>(
     keep_states: bool,
     follow: &str,
     threads: usize,
+    row_plans: Option<Vec<(u8, u8)>>,
+    col_plans: Option<Vec<(u8, u8)>>,
 ) -> PyResult<LeavesOut<'py>> {
     let cells = cells_of(&cells)?;
     let (rows, cols) = (pairs(rows), pairs(cols));
+    let (rp, cp) = (plans_of(row_plans), plans_of(col_plans));
     let opts = SimOpts { observe, keep_states, follow: follow_of(follow)? };
     let pool = search::pool(threads);
     let g = &game.inner;
-    let leaves =
-        py.detach(|| search::simulate(g, view, &rows, &cols, &cells, seed, &opts, &pool)).map_err(failed)?;
+    let leaves = py
+        .detach(|| search::simulate_planned(g, view, &rows, &cols, &rp, &cp, &cells, seed, &opts, &pool))
+        .map_err(failed)?;
     leaves_out(py, leaves)
 }
 
@@ -840,10 +857,12 @@ struct PySearch {
 impl PySearch {
     /// `rows`: the viewer's joint actions, likeliest first; `cols`: the other side's.
     /// `candidates`: `None` for every action at each oracle step, or the next so many.
+    /// `row_plans` / `col_plans`: a plan per action (see `simulate`), or `None`; with plans
+    /// the same action may be listed with different plans.
     #[new]
     #[pyo3(signature = (
         game, view, rows, cols, seed, candidates=None, seeds=16, initial=1, max_steps=None, time_cap=None, eps=1e-3,
-        max_iter=5000, tol=1e-4
+        max_iter=5000, tol=1e-4, row_plans=None, col_plans=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -860,6 +879,8 @@ impl PySearch {
         eps: f64,
         max_iter: usize,
         tol: f64,
+        row_plans: Option<Vec<(u8, u8)>>,
+        col_plans: Option<Vec<(u8, u8)>>,
     ) -> PyResult<Self> {
         let budget = Budget {
             candidates: match candidates {
@@ -874,7 +895,9 @@ impl PySearch {
             solver: SolveOpts { max_iter, tol },
         };
         let (view, rows, cols) = (side_index(view)?, pairs(rows), pairs(cols));
-        let inner = search::Search::new(game.inner.clone(), view, rows, cols, budget, seed).map_err(failed)?;
+        let (rp, cp) = (plans_of(row_plans), plans_of(col_plans));
+        let inner =
+            search::Search::with_plans(game.inner.clone(), view, rows, cols, rp, cp, budget, seed).map_err(failed)?;
         Ok(PySearch { inner })
     }
 
@@ -931,6 +954,17 @@ impl PySearch {
     #[getter]
     fn cols(&self) -> Vec<(usize, usize)> {
         self.inner.cols().iter().map(|a| (a[0], a[1])).collect()
+    }
+
+    /// The plan of each row and column (empty lists when none were given).
+    #[getter]
+    fn row_plans(&self) -> Vec<(u8, u8)> {
+        plans_out(self.inner.row_plans())
+    }
+
+    #[getter]
+    fn col_plans(&self) -> Vec<(u8, u8)> {
+        plans_out(self.inner.col_plans())
     }
 
     #[getter]

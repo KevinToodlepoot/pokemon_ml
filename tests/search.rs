@@ -11,6 +11,7 @@ use vgc_engine::obs::Phase;
 use vgc_engine::position::{ActionState, BattleState, PokemonState, SideState};
 use vgc_engine::rng::Rng;
 use vgc_engine::search::cell::{PHASE, SUMMARY};
+const PASS: usize = 46;
 use vgc_engine::search::*;
 use vgc_engine::{Battle, Choice, PokemonSet, Request};
 
@@ -173,7 +174,7 @@ fn a_cell_plays_a_switch_in_the_middle_of_the_turn_out_and_stops_at_the_end() {
             .collect();
     assert!(pivots.len() >= 4, "the tables know the pivot moves");
     let mut rng = Rng::from_words([9, 9, 9, 9]);
-    let (mut found, mut tried) = (0, 0);
+    let (mut found, mut tried, mut planned_cells) = (0, 0, 0);
     let keep = SimOpts { observe: false, keep_states: true, follow: Follow::None };
     let play_out = SimOpts { observe: false, keep_states: true, follow: Follow::EndOfTurn };
     'games: for seed in 300..900u16 {
@@ -212,6 +213,42 @@ fn a_cell_plays_a_switch_in_the_middle_of_the_turn_out_and_stops_at_the_end() {
                         assert!(after.ended || after.turn > before.turn || after.request == Request::Switch);
                         assert!(after.ended || after.turn >= before.turn);
                     }
+                    // A plan: the pivot brings in the Pokémon the action named, not the dice's choice
+                    // (S3.4). Every replacement the mid-turn request allows is planned in turn.
+                    let no_plans = vec![NO_PLANS; rows.len()];
+                    let same = simulate_planned(&g, side, &rows, &theirs, &no_plans, &[], &cells, 1, &play_out, &pool(8))
+                        .unwrap();
+                    assert_eq!(same.summary, played.summary, "no plans: the dice's choices, as before");
+                    let k0 = mid[0];
+                    let options: Vec<usize> = stop.states[k0]
+                        .legal(side)
+                        .iter()
+                        .map(|a| a[pos])
+                        .filter(|&a| (40..=45).contains(&a))
+                        .collect();
+                    assert!(!options.is_empty());
+                    for &p in &options {
+                        let mut plan = NO_PLANS;
+                        plan[pos] = p as u8;
+                        let plans = vec![plan; rows.len()];
+                        let kept = simulate_planned(&g, side, &rows, &theirs, &plans, &[], &cells, 1, &play_out, &pool(8))
+                            .unwrap();
+                        for &k in &mid {
+                            // (Only where this side is the one asked at that position: the request may be
+                            // the other side's pivot, or an Eject Button on it.)
+                            let mut mine = NO_PLANS.map(|_| PASS);
+                            mine[pos] = p;
+                            let asked = stop.states[k].legal(side).iter().any(|a| a[pos] == p);
+                            if !asked {
+                                continue;
+                            }
+                            let b = kept.states[k].battle().unwrap();
+                            let registered = kept.states[k].rosters()[side][p - 40].species;
+                            let there = b.mon(b.active(side, pos)).base_species;
+                            assert_eq!(there, registered, "the planned Pokémon came in at position {pos} ({mine:?})");
+                            planned_cells += 1;
+                        }
+                    }
                     if found >= 5 {
                         break 'games;
                     }
@@ -219,8 +256,32 @@ fn a_cell_plays_a_switch_in_the_middle_of_the_turn_out_and_stops_at_the_end() {
             }
         }
     }
-    eprintln!("mid-turn switches: {found} positions with one, of {tried} pivot moves tried");
+    eprintln!("mid-turn switches: {found} positions with one, of {tried} pivot moves tried; {planned_cells} planned cells");
     assert!(found >= 1, "random teams should pivot now and then ({tried} tried)");
+    assert!(planned_cells >= 1);
+}
+
+#[test]
+fn plans_are_checked_and_tell_the_same_action_apart() {
+    let mut rng = Rng::from_words([7, 7, 7, 7]);
+    let g = roots(1, &[2], 6000, &mut rng).remove(0);
+    let (rows, cols) = (g.legal(0), g.legal(1));
+    let cells = all_cells(1, 1, 2);
+    let bad = vec![[7u8, NO_PLAN]; rows.len()];
+    assert!(simulate_planned(&g, 0, &rows, &cols, &bad, &[], &cells, 1, &NO_OBS, &pool(8)).is_err(), "7 is no switch");
+    let short = vec![NO_PLANS; 1];
+    let err = rows.len() > 1 && simulate_planned(&g, 0, &rows, &cols, &short, &[], &cells, 1, &NO_OBS, &pool(8)).is_err();
+    assert!(rows.len() == 1 || err, "a plan per action, or none");
+    // The same action with two plans is two rows; the same pair twice is a duplicate.
+    let twice = vec![rows[0], rows[0]];
+    let plans = vec![[40u8, NO_PLAN], [41u8, NO_PLAN]];
+    let s = Search::with_plans(g.clone(), 0, twice.clone(), cols.clone(), plans.clone(), Vec::new(), Budget::default(), 1);
+    assert!(s.is_ok(), "{:?}", s.err());
+    assert_eq!(s.unwrap().row_plans(), &plans[..]);
+    let dup = vec![[40u8, NO_PLAN]; 2];
+    assert!(Search::with_plans(g.clone(), 0, twice.clone(), cols.clone(), dup, Vec::new(), Budget::default(), 1).is_err());
+    assert!(Search::with_plans(g.clone(), 0, twice, cols.clone(), Vec::new(), Vec::new(), Budget::default(), 1).is_err());
+    assert!(Search::new(g.clone(), 0, rows.clone(), cols, Budget::default(), 1).unwrap().row_plans().is_empty());
 }
 
 /// The full matrix over `rows × cols` solved once, and the double oracle over the same lists.

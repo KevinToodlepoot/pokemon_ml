@@ -693,6 +693,9 @@ fn a_followers_game_state_loads_observes_as_it_does_and_counts_as_the_game_does(
     let (seen, counted) = (tally.observed_differently, tally.counts_differ);
     assert!(seen * 100 <= exported, "{seen} of {exported}: {:#?}", tally.first);
     assert!(counted * 100 <= exported, "{counted} of {exported}: {:#?}", tally.first);
+    // The other side's HP: every export shows the percentage and bar the follower was told, HP
+    // points included where a bar at exactly 20% or 50% needs them (S3.4).
+    assert_eq!(tally.hp_bar_differ, 0, "{:#?}", tally.first);
     println!("observed differently {seen} and counts differ {counted} of {exported} exports");
     let known =
         ["Illusion", "Transform", "a switch in the middle of a turn", "closed team sheets", "waiting for the other side"];

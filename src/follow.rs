@@ -87,7 +87,7 @@ use crate::format::ShowdownSet;
 use crate::obs::{INFO, OBS_I, Phase, ROSTER, Timers, is_mega, observe_battle, observe_preview};
 use crate::observer::{Observer, ident};
 use crate::position::vol_holds_move;
-use crate::shown::{ItemShown, NOTHING_SHOWN, Shown, UNKNOWN, hp_shown};
+use crate::shown::{ItemShown, NOTHING_SHOWN, Shown, ShownSide, UNKNOWN, hp_shown};
 use crate::speed::{self, Event, FieldSeen, Queued, Seen, Speeds};
 use crate::state::*;
 
@@ -329,6 +329,9 @@ impl Spot {
 }
 
 /// The two-turn moves' own conditions, by the move's id.
+/// The most stat points one stat may carry in Champions (the format's cap per stat).
+const MAX_HP_POINTS: u8 = 32;
+
 const CHARGING: [VolKind; 10] = [
     VolKind::Fly,
     VolKind::Dig,
@@ -890,6 +893,12 @@ impl Follower {
     }
 
     /// The battle as rebuilt at the last request: right in what the observation reads, and no further.
+    /// What this side has been shown of `side`'s Pokémon (the record the
+    /// observation reads: HP percentage and bar, status, moves, item, ability).
+    pub fn shown(&self, side: usize) -> ShownSide {
+        self.reader.shown(side)
+    }
+
     pub fn battle(&self) -> Option<&Battle> {
         self.battle.as_ref()
     }
@@ -3602,15 +3611,26 @@ impl Follower {
                     }
                 }
             }
-            m.stats = calc_stats(m.species, set.nature, [0; 6]);
-            m.hp = if m.fainted {
-                0
+            // Stat points of 0, but for HP: at exactly 20% or 50% the bar's colour (red at a fifth,
+            // yellow at a half) needs a max HP that can show it, so the least HP points whose max HP
+            // shows the percentage and bar recorded are taken (S3.4).
+            let (points, hp) = if m.fainted {
+                ([0; 6], 0)
             } else {
-                let max = m.stats[0];
-                (1..=max).find(|&h| hp_shown(h, max) == (rec.hp, rec.bar)).unwrap_or_else(|| {
-                    (1..=max).find(|&h| hp_shown(h, max).0 == rec.hp).unwrap_or(max)
-                })
+                (0..=MAX_HP_POINTS)
+                    .find_map(|pts| {
+                        let points = [pts, 0, 0, 0, 0, 0];
+                        let max = calc_stats(m.species, set.nature, points)[0];
+                        (1..=max).find(|&h| hp_shown(h, max) == (rec.hp, rec.bar)).map(|h| (points, h))
+                    })
+                    .unwrap_or_else(|| {
+                        let max = calc_stats(m.species, set.nature, [0; 6])[0];
+                        ([0; 6], (1..=max).find(|&h| hp_shown(h, max).0 == rec.hp).unwrap_or(max))
+                    })
             };
+            m.stat_points = points;
+            m.stats = calc_stats(m.species, set.nature, points);
+            m.hp = hp;
             // Its ability: as shown, or its Mega's, or its sheet's.
             let own = if is_mega(m.species) { SPECIES[m.species as usize].ability0 } else { set.ability };
             m.ability = if rec.ability != UNKNOWN { rec.ability } else { own };

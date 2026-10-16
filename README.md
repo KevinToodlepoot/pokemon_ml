@@ -193,7 +193,12 @@ A cell copies the game, gives it fresh dice (`Game::reseed`), acts, answers
 a switch request in the middle of the turn (U-turn, Eject Button) with a
 random replacement and stops once the turn is over (`Game::turn_over`): at
 the next move request, at the request for replacing the fainted, or at the
-end of the battle. Cells with the same dice index play under the same seed
+end of the battle. A joint action may carry a **plan** (`simulate_planned`,
+`Search::with_plans`): per position, the switch action of the Pokémon to
+bring in if that position is asked to switch in the middle of the turn, so
+that "U-turn into this Pokémon" is one action decided at the root; the same
+action may be listed with different plans, and with no plans the leaves are
+exactly as before. Cells with the same dice index play under the same seed
 words whatever their actions, so two cells differ by their actions before
 they differ by their luck, and everything repeats exactly under its seed.
 `tests/search.rs` checks that the double oracle finds the value and an
@@ -203,10 +208,11 @@ a hundred positions random play reaches with few actions left, while
 building a small part of the matrix; and that a cell costs about 13 µs on
 one core.
 
-From Python: `Search(game, view, rows, cols, seed, ...)` with `wanted()`,
-`simulate(cells)`, `supply(cells, values)`, `advance()` and `report()`, plus
-the functions `simulate`, `solve`, `hand_value` and `heuristic_order`, and
-`Game.reseed` / `Game.turn_over`.
+From Python: `Search(game, view, rows, cols, seed, ..., row_plans=None,
+col_plans=None)` with `wanted()`, `simulate(cells)`, `supply(cells, values)`,
+`advance()`, `deepen(row, col, extra)` and `report()`, plus the functions
+`simulate` (with `row_plans` / `col_plans`), `solve`, `hand_value` and
+`heuristic_order`, and `Game.reseed` / `Game.turn_over`.
 
 ### Searching from what one player has seen on Showdown
 
@@ -216,8 +222,9 @@ from its side starts from `Follower::game_state()` (Python:
 is right in what the observation reads and no further; the export
 completes it from what the player has been told: the other side's Pokémon
 from their open sheets (moves and the PP the log shows spent, items and
-abilities as shown or else as the sheet has them, stat points of 0 with HP
-the least that shows the percentage and bar), the Pokémon not yet seen as
+abilities as shown or else as the sheet has them, stat points of 0 but for
+the HP points a bar at exactly 20% or 50% needs, with HP the least that
+shows the percentage and bar), the Pokémon not yet seen as
 the sheet's entries not yet seen, the turns each weather, terrain, screen
 and condition has left, what a condition is about (an Encore's move, a
 Choice lock, a rampage, a charging move and its aim), how each Pokémon's
