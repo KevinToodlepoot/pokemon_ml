@@ -1193,11 +1193,34 @@ pub struct FollowTally {
     pub hidden_disables: usize,
     /// Print every difference as it is found.
     pub verbose: bool,
+    /// By count (`obs` layout obs-2): how many compared observations had it above 0 in the
+    /// game's, so that a count no recording ever reached shows as unchecked.
+    pub counted: std::collections::BTreeMap<String, usize>,
+}
+
+/// Whether a feature is one of the counts of `obs-2`: the timed and counted volatiles and the
+/// timed slots of a position, and a token's sleep and freeze counts.
+fn is_count(index: usize) -> bool {
+    use crate::obs::{ACT_COUNTS, ACT_F, COUNTED_VOLATILES, FIELD_F, MON_F, MONS, TIMED_SLOTS, TIMED_VOLATILES};
+    let acts = FIELD_F + MONS * MON_F;
+    if (FIELD_F..acts).contains(&index) {
+        return (index - FIELD_F) % MON_F >= 52;
+    }
+    if !(acts..acts + 4 * ACT_F).contains(&index) {
+        return false;
+    }
+    let col = (index - acts) % ACT_F;
+    let vols = TIMED_VOLATILES.len() + COUNTED_VOLATILES.len();
+    let slots = ACT_COUNTS + vols + crate::data::SlotCond::ALL.len();
+    (ACT_COUNTS..ACT_COUNTS + vols).contains(&col) || (slots..slots + TIMED_SLOTS.len()).contains(&col)
 }
 
 /// A name for each number of an observation's feature buffer, by part and column.
 fn feature_name(index: usize) -> String {
-    use crate::obs::{ACT_F, ACT_VOLATILES, FIELD_F, MON_F, MOVE_F, layout};
+    use crate::obs::{
+        ACT_COUNTS, ACT_F, ACT_VOLATILES, COUNTED_VOLATILES, FIELD_F, MON_F, MOVE_F, TIMED_SLOTS, TIMED_VOLATILES,
+        layout,
+    };
     let (parts, _) = layout();
     let (name, start, _) = parts.iter().rev().find(|p| index >= p.1).expect("an index inside the buffer");
     let at = index - start;
@@ -1272,7 +1295,9 @@ fn feature_name(index: usize) -> String {
                 42..=45 => "pp",
                 46 => "speed low",
                 47 => "speed high",
-                _ => "speed items",
+                48..=51 => "speed items",
+                52 => "sleep count",
+                _ => "freeze count",
             };
             format!("{own} mon: {what}")
         }
@@ -1293,8 +1318,24 @@ fn feature_name(index: usize) -> String {
                 c if c < ACT_VOLATILES + n_vol => format!("vol {}", VolKind::ALL[c - ACT_VOLATILES].id()),
                 c if c == ACT_VOLATILES + n_vol => "perish count".to_string(),
                 c if c == ACT_VOLATILES + n_vol + 1 => "protect streak".to_string(),
-                c if c < ACT_VOLATILES + n_vol + 2 + SlotCond::ALL.len() => {
-                    format!("slot {}", SlotCond::ALL[c - ACT_VOLATILES - n_vol - 2].id())
+                c if c < ACT_COUNTS + TIMED_VOLATILES.len() => {
+                    format!("{} turns", TIMED_VOLATILES[c - ACT_COUNTS].id())
+                }
+                c if c < ACT_COUNTS + TIMED_VOLATILES.len() + COUNTED_VOLATILES.len() => {
+                    format!("{} count", COUNTED_VOLATILES[c - ACT_COUNTS - TIMED_VOLATILES.len()].0.id())
+                }
+                c if c < ACT_COUNTS + TIMED_VOLATILES.len() + COUNTED_VOLATILES.len() + SlotCond::ALL.len() => {
+                    let k = c - ACT_COUNTS - TIMED_VOLATILES.len() - COUNTED_VOLATILES.len();
+                    format!("slot {}", SlotCond::ALL[k].id())
+                }
+                c if c < ACT_COUNTS
+                    + TIMED_VOLATILES.len()
+                    + COUNTED_VOLATILES.len()
+                    + SlotCond::ALL.len()
+                    + TIMED_SLOTS.len() =>
+                {
+                    let k = c - ACT_COUNTS - TIMED_VOLATILES.len() - COUNTED_VOLATILES.len() - SlotCond::ALL.len();
+                    format!("slot {} turns", TIMED_SLOTS[k].0.id())
                 }
                 _ => "moves first".to_string(),
             };
@@ -1401,6 +1442,10 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
             game.observe(side, &mut f[0], &mut i[0], &mut m[0]);
             followers[side].observe(&mut f[1], &mut i[1], &mut m[1])?;
             tally.observations += 1;
+            for k in (0..OBS_F).filter(|&k| f[0][k] != 0.0 && is_count(k)) {
+                let name = feature_name(k).replace("own ", "").replace("their ", "");
+                *tally.counted.entry(name).or_insert(0) += 1;
+            }
             let at = format!("battle {} step {step} side {side}", c.id);
             let mut wrong = false;
             let verbose = tally.verbose;

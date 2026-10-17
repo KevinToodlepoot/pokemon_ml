@@ -148,6 +148,10 @@ fn main() {
     for (name, (n, example)) in rows {
         println!("{n:>8}  {name}\n          {example}");
     }
+    // Which of the observation's counts (obs-2) the recording reached at all, and how often.
+    let counted: Vec<String> = tally.counted.iter().map(|(name, n)| format!("{name} {n}")).collect();
+    let counted = if counted.is_empty() { "none".into() } else { counted.join(", ") };
+    println!("counts above 0 in the game's observations: {counted}");
     if list {
         for first in &tally.first_wrong {
             println!("first: {first}");
@@ -159,7 +163,7 @@ fn main() {
             "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
                 "failed": failed.len(), "observations": tally.observations,
                 "differences": tally.wrong, "actionable_differences": tally.wrong_choices,
-                "passed_over": tally.hidden_disables},
+                "passed_over": tally.hidden_disables, "counted": tally.counted},
         });
         std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
             .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));

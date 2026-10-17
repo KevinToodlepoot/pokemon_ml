@@ -48,13 +48,13 @@ fn solar_pressure_and_hidden_baton_suppression_regressions_match() {
                 let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
                 me.observe(&mut f, &mut i, &mut mask).unwrap();
                 if side == 0 {
-                    assert_eq!(f[1144], 1.0, "the opponent cannot know suppression was silently removed");
+                    assert_eq!(f[1231], 1.0, "the opponent cannot know suppression was silently removed");
                     me.line("|-activate|p2b: Alcremie0|ability: Battle Bond").unwrap();
                     me.request(&case.steps[7].after.requests[side].to_string()).unwrap();
                     me.observe(&mut f, &mut i, &mut mask).unwrap();
-                    assert_eq!(f[1144], 0.0, "a public Battle Bond activation resolves the suppression uncertainty");
+                    assert_eq!(f[1231], 0.0, "a public Battle Bond activation resolves the suppression uncertainty");
                 } else {
-                    assert_eq!(f[894], 0.0, "the holder knows its own unsuppressible ability");
+                    assert_eq!(f[939], 0.0, "the holder knows its own unsuppressible ability");
                 }
             }
         }
@@ -111,29 +111,29 @@ fn local_300000_failures_have_matching_observations() {
         let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
         me.observe(&mut f, &mut i, &mut mask).unwrap();
         match case.id {
-            992 => assert_eq!(f[495], 0.0, "a pending SwitchIn cannot expose the previous Toxic counter"),
+            992 => assert_eq!(f[511], 0.0, "a pending SwitchIn cannot expose the previous Toxic counter"),
             733 => {
                 assert_eq!(
-                    f[526],
+                    f[542],
                     47.0 / 200.0,
                     "an instructed repeat does not reveal the unknown original queued move"
                 )
             }
-            834 => assert_eq!(f[262], 11.0 / 12.0, "Mega Levitate prevents spread Expanding Force Pressure costs"),
-            970 => assert_eq!(f[265], 7.0 / 12.0, "the instant solar animation resolves the Pressure target"),
+            834 => assert_eq!(f[268], 11.0 / 12.0, "Mega Levitate prevents spread Expanding Force Pressure costs"),
+            970 => assert_eq!(f[271], 7.0 / 12.0, "the instant solar animation resolves the Pressure target"),
             582 => assert_eq!(
                 i[72],
                 vgc_engine::data::species_id("morpekohangry").unwrap() as i16 + vgc_engine::obs::ID_BASE
             ),
             236 => assert_eq!(
-                f[423],
+                f[435],
                 101.0 / 200.0,
                 "an instructed repeat cannot reveal the failed queued move's priority"
             ),
-            574 => assert_eq!(f[453], 0.75, "a failed reflection does not establish ownership of Heal Pulse"),
-            328 => assert_eq!(f[810], 0.0, "called Speed Swap makes the old first-mover inference unavailable"),
-            892 => assert_eq!(f[422], 111.0 / 200.0, "Encore invalidates the initial Quick Claw roll"),
-            111 => assert_eq!(f[1144], 0.0, "Battle Bond discards Baton Passed Gastro Acid"),
+            574 => assert_eq!(f[467], 0.75, "a failed reflection does not establish ownership of Heal Pulse"),
+            328 => assert_eq!(f[855], 0.0, "called Speed Swap makes the old first-mover inference unavailable"),
+            892 => assert_eq!(f[434], 111.0 / 200.0, "Encore invalidates the initial Quick Claw roll"),
+            111 => assert_eq!(f[1231], 0.0, "Battle Bond discards Baton Passed Gastro Acid"),
             _ => unreachable!(),
         }
     }
@@ -174,9 +174,9 @@ fn future_sight_ripen_and_instruct_failures_have_matching_observations() {
         let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
         me.observe(&mut f, &mut i, &mut mask).unwrap();
         match case.id {
-            699 => assert_eq!(f[227], 1.0, "Future Sight's caster retains full HP when Red Card cancels recoil"),
-            591 => assert_eq!(f[366], 1.0, "Ripen restores twenty PP, capped at Guard Swap's maximum"),
-            746 => assert_eq!(f[475], 107.0 / 200.0, "instructed Snore does not consume the original queued action"),
+            699 => assert_eq!(f[233], 1.0, "Future Sight's caster retains full HP when Red Card cancels recoil"),
+            591 => assert_eq!(f[376], 1.0, "Ripen restores twenty PP, capped at Guard Swap's maximum"),
+            746 => assert_eq!(f[489], 107.0 / 200.0, "instructed Snore does not consume the original queued action"),
             _ => unreachable!(),
         }
     }
@@ -222,20 +222,20 @@ fn local_200000_failures_have_matching_observations() {
         let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
         me.observe(&mut f, &mut i, &mut mask).unwrap();
         match case.id {
-            830 => assert_eq!(f[631], 145.0 / 200.0, "Attract after waking preserves Quick Feet queue evidence"),
+            830 => assert_eq!(f[651], 145.0 / 200.0, "Attract after waking preserves Quick Feet queue evidence"),
             843 => assert_eq!(f[40], 4.0 / 8.0, "Court Change preserves Reflect's elapsed age"),
             392 => {
-                assert_eq!(f[904], 1.0, "a refused reflected heal does not cancel charging");
-                assert_eq!(f[912], 1.0, "Solar Blade remains prepared");
+                assert_eq!(f[949], 1.0, "a refused reflected heal does not cancel charging");
+                assert_eq!(f[957], 1.0, "Solar Blade remains prepared");
             }
-            605 => assert_eq!(f[527], 97.0 / 200.0, "an instructed Quick Claw roll cannot promote the queued move"),
+            605 => assert_eq!(f[543], 97.0 / 200.0, "an instructed Quick Claw roll cannot promote the queued move"),
             539 => {
-                assert_eq!(f[661], 0.75, "lost-focus cant reveals the unmasked Pokémon's move");
+                assert_eq!(f[683], 0.75, "lost-focus cant reveals the unmasked Pokémon's move");
                 assert_eq!(i[94], vgc_engine::data::move_id("focuspunch").unwrap() as i16 + vgc_engine::obs::ID_BASE);
             }
-            25 => assert_eq!(f[423], 118.0 / 200.0, "a Cheri Berry cure is not waking from sleep"),
-            9 => assert_eq!(f[578], 141.0 / 200.0, "lost-focus order supplies Speed evidence"),
-            11 => assert_eq!(f[630], 145.0 / 200.0, "lost focus after a pivot preserves queued priority"),
+            25 => assert_eq!(f[435], 118.0 / 200.0, "a Cheri Berry cure is not waking from sleep"),
+            9 => assert_eq!(f[596], 141.0 / 200.0, "lost-focus order supplies Speed evidence"),
+            11 => assert_eq!(f[650], 145.0 / 200.0, "lost focus after a pivot preserves queued priority"),
             _ => unreachable!(),
         }
     }
@@ -282,11 +282,11 @@ fn illusion_residual_and_guard_failures_have_matching_observations() {
                     i[56],
                     vgc_engine::data::species_id("aegislashblade").unwrap() as i16 + vgc_engine::obs::ID_BASE
                 );
-                assert_eq!(f[938], 0.0, "the disguised ally's faint leaves this position empty");
+                assert_eq!(f[1004], 0.0, "the disguised ally's faint leaves this position empty");
             }
             735 => {
-                assert_eq!(f[630], 36.0 / 200.0, "ambiguous item loss cannot exclude the real Aegislash's speed items");
-                assert_eq!(f[631], 184.0 / 200.0);
+                assert_eq!(f[650], 36.0 / 200.0, "ambiguous item loss cannot exclude the real Aegislash's speed items");
+                assert_eq!(f[651], 184.0 / 200.0);
             }
             632 => assert_eq!(f[10], 0.0, "rain inherited after Toxic has not aged"),
             178 => assert_eq!(f[37], 0.0, "Feint clears Quick Guard before the forced replacement"),
@@ -325,13 +325,13 @@ fn locally_saved_sweep_failures_have_matching_observations() {
         let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
         me.observe(&mut f, &mut i, &mut mask).unwrap();
         match case.id {
-            232 => assert_eq!(f[368], -1.0, "Armor Tail hides the rerolled target's Pressure cost"),
+            232 => assert_eq!(f[378], -1.0, "Armor Tail hides the rerolled target's Pressure cost"),
             857 => {
-                assert_eq!(f[527], 141.0 / 200.0, "waking through confusion preserves the Speed bound");
-                assert_eq!(f[528], 0.0, "the observed ordering excludes speed-modifying items");
+                assert_eq!(f[543], 141.0 / 200.0, "waking through confusion preserves the Speed bound");
+                assert_eq!(f[544], 0.0, "the observed ordering excludes speed-modifying items");
             }
-            266 => assert_eq!(f[683], 111.0 / 200.0, "a cured Encore permits Speed evidence"),
-            472 => assert_eq!(f[213], 1.0, "Choice refusal does not spend copied Sleep Talk PP"),
+            266 => assert_eq!(f[705], 111.0 / 200.0, "a cured Encore permits Speed evidence"),
+            472 => assert_eq!(f[217], 1.0, "Choice refusal does not spend copied Sleep Talk PP"),
             565 => assert_eq!(
                 i[26],
                 vgc_engine::data::item_id("sitrusberry").unwrap() as i16 + vgc_engine::obs::ID_BASE,
@@ -404,6 +404,8 @@ fn a_follower_sees_what_the_simulator_sees() {
     assert!(battles >= 20 && decisions > 300, "{battles} battles, {decisions} decisions");
     assert!(tally.observations > 600, "{} observations", tally.observations);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    // Which counts (obs-2) these battles reached: what the comparison above has checked.
+    eprintln!("counts above 0: {:?}", tally.counted);
 }
 
 /// The same from the outside, as a client uses it: lines and requests in,
@@ -490,8 +492,8 @@ fn cured_encore_and_allied_skill_swap_preserve_speed_evidence() {
     for case in &cases {
         assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "case {}", case.id);
         let (steps, feature, expected) = match case.id {
-            871 => (11, 474, 114.0 / 200.0),
-            115 => (14, 423, 89.0 / 200.0),
+            871 => (11, 488, 114.0 / 200.0),
+            115 => (14, 435, 89.0 / 200.0),
             _ => panic!("unexpected regression case"),
         };
         let mut me = follower_for(case, 1);
@@ -535,7 +537,7 @@ fn a_wait_request_keeps_pressure_pp_unknown_until_an_exact_request() {
     assert_eq!(b.mon(b.active(1, 0)).unknown_pp, 1, "Comeuppance's count is uncertain");
     let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
     me.observe(&mut f, &mut i, &mut mask).unwrap();
-    assert_eq!(f[366], -1.0, "do not expose an inferred PP count as exact");
+    assert_eq!(f[376], -1.0, "do not expose an inferred PP count as exact");
     let step = &case.steps[3];
     me.lines(&Follower::own_lines(1, &step.after.log)).unwrap();
     me.request(&step.after.requests[1].to_string()).unwrap();
@@ -543,7 +545,7 @@ fn a_wait_request_keeps_pressure_pp_unknown_until_an_exact_request() {
     let mon = b.mon(b.active(1, 0));
     assert_eq!((mon.unknown_pp, mon.moves[0].pp, mon.moves[0].maxpp), (0, 8, 12));
     me.observe(&mut f, &mut i, &mut mask).unwrap();
-    assert_eq!(f[366], 8.0 / 12.0);
+    assert_eq!(f[376], 8.0 / 12.0);
 }
 
 /// The last of a side to choose is told only that it *may* be trapped, when

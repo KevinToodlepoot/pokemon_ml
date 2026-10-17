@@ -84,7 +84,10 @@ use crate::battle::{PokemonSet, calc_stats, types_copied};
 use crate::data::*;
 use crate::env::{Counts, GameState, N_PREVIEW, OBS_M, choice_of, masks_of, preview_table};
 use crate::format::ShowdownSet;
-use crate::obs::{INFO, OBS_I, Phase, ROSTER, Timers, is_mega, observe_battle, observe_preview};
+use crate::obs::{
+    INFO, OBS_I, Phase, ROSTER, TIMED_SLOTS, TIMED_VOLATILES, Timers, is_mega, observe_battle, observe_preview,
+    slot_kept,
+};
 use crate::observer::{Observer, ident};
 use crate::position::vol_holds_move;
 use crate::shown::{ItemShown, NOTHING_SHOWN, Shown, ShownSide, UNKNOWN, hp_shown};
@@ -126,6 +129,25 @@ struct Vol {
     by: Option<(usize, usize, usize)>,
 }
 
+impl Vol {
+    /// The turns it has left as the engine counts them (its `duration`), where the follower
+    /// knows: a set length counted down since the log began it, or one it ends by itself; 0
+    /// if none or not known.
+    fn turns_left(&self) -> u8 {
+        match self.ends {
+            _ if self.left > 0 => self.left,
+            Ends::After(n) => n,
+            _ => 0,
+        }
+    }
+}
+
+/// A frozen Pokémon's `status_time`, as the engine keeps it: three attempts at most, less those
+/// made (`conditions.rs`, Champions).
+fn frozen_time(frozen: u8) -> u8 {
+    3u8.saturating_sub(frozen).max(1)
+}
+
 /// One position on the field: what holds for whoever stands there, from the log.
 #[derive(Clone, Debug)]
 struct Spot {
@@ -133,6 +155,13 @@ struct Spot {
     stay: u32,
     boosts: [i8; 7],
     vols: Vec<Vol>,
+    /// How far its confusion and a binding move on it have run, as [`Counts`] keeps them, and
+    /// whether each began since the last decision (it then counts from the next one). Kept with
+    /// the stay, not by team index: two Pokémon on the field can go by one name (Illusion).
+    confused: u8,
+    bound: u8,
+    confused_new: bool,
+    bound_new: bool,
     /// Its types, if something has said what they are: as this side takes them (a
     /// Reflect Type names only the Pokémon copied, which may be in disguise).
     types: Option<[Type; 2]>,
@@ -235,6 +264,10 @@ impl Spot {
             stay,
             boosts: [0; 7],
             vols: Vec::new(),
+            confused: 0,
+            bound: 0,
+            confused_new: false,
+            bound_new: false,
             types: None,
             added: Type::None,
             copied: false,
@@ -2413,8 +2446,12 @@ impl Follower {
                 if !parts.contains(&"[premajor]") {
                     let spot = self.spot(side, pos);
                     spot.add(VolKind::Twoturnmove, Ends::After(2));
-                    if let Some(own) = VolKind::named(&to_id(arg(3))) {
-                        spot.add(own, Ends::Said);
+                    if let Some(own) = VolKind::named(&to_id(arg(3)))
+                        && spot.add(own, Ends::Said)
+                        && let Some(v) = spot.vols.iter_mut().find(|v| v.kind == own)
+                    {
+                        // As long as the charging turn lasts: the engine's `duration`.
+                        v.left = own.data().duration;
                     }
                 }
             }
@@ -2638,6 +2675,9 @@ impl Follower {
         };
         // (What began since the last decision counts from this one on.)
         self.fresh = [[0; MAX_TEAM]; 2];
+        for spot in self.spots.iter_mut().flatten() {
+            (spot.confused_new, spot.bound_new) = (false, false);
+        }
         if req.asked == Asked::Preview || !self.started {
             self.req = Some(req);
             return Ok(());
@@ -2785,9 +2825,14 @@ impl Follower {
                 b.sides[side].conds.push(c);
             }
             for pos in 0..ACTIVE {
-                for &(kind, _) in &track.slots[pos] {
+                for &(kind, turns) in &track.slots[pos] {
                     if !b.sides[side].slot_conds[pos].has(kind) {
-                        b.sides[side].slot_conds[pos].push(Cond::new(kind));
+                        let mut c = Cond::new(kind);
+                        // The turn it keeps, as the observation reads it back (`obs::slot_left`).
+                        if TIMED_SLOTS.iter().any(|t| t.0 == kind) {
+                            c.st.a = slot_kept(&b, kind, turns as i32);
+                        }
+                        b.sides[side].slot_conds[pos].push(c);
                     }
                 }
             }
@@ -3029,7 +3074,19 @@ impl Follower {
                     }
                     let mut c = Cond::new(v.kind);
                     (c.data, c.duration) = (v.data, v.duration);
+                    if TIMED_VOLATILES.contains(&v.kind) {
+                        c.duration = v.turns_left();
+                    }
                     b.vols[s][pos].push(c);
+                }
+            }
+        }
+        // How long each frozen Pokémon has stayed frozen (the observation reads it off its turns).
+        for s in 0..2 {
+            for idx in 0..b.sides[s].n as usize {
+                let m = &mut b.sides[s].team[idx];
+                if m.status == Status::Frz {
+                    m.status_time = frozen_time(self.frozen[s][idx]);
                 }
             }
         }
@@ -3079,8 +3136,9 @@ impl Follower {
                         if self.rampage[s][idx] != NO_MOVE && self.fresh[s][idx] & 4 == 0 {
                             self.counts.rampage[s][idx] = self.counts.rampage[s][idx].saturating_add(1);
                         }
-                        if self.spots[s][p].has(VolKind::Partiallytrapped) && self.fresh[s][idx] & 8 == 0 {
-                            self.counts.trap[s][idx] = self.counts.trap[s][idx].saturating_add(1);
+                        let spot = &mut self.spots[s][p];
+                        if spot.has(VolKind::Partiallytrapped) && !spot.bound_new {
+                            spot.bound = spot.bound.saturating_add(1);
                         }
                         for v in self.spots[s][p].vols.iter_mut() {
                             v.left = v.left.saturating_sub(1);
@@ -3311,8 +3369,9 @@ impl Follower {
             }
             "-activate" => {
                 let name = effect_id(arg(3));
-                if name == "confusion" && self.fresh[side][idx] & 2 == 0 {
-                    self.counts.confusion[side][idx] = self.counts.confusion[side][idx].saturating_add(1);
+                if name == "confusion" && !self.spots[side][pos].confused_new {
+                    let spot = &mut self.spots[side][pos];
+                    spot.confused = spot.confused.saturating_add(1);
                 } else if name == "disguise" && mover.is_some() {
                     // The blow fell on the Disguise: an attack that did no damage.
                     if let Some((s, p)) = mover {
@@ -3336,8 +3395,7 @@ impl Follower {
                 } else if arg(3).starts_with("move: ")
                     && move_id(&name).is_some_and(|m| MOVES[m as usize].volatile == Some(VolKind::Partiallytrapped))
                 {
-                    self.counts.trap[side][idx] = 0;
-                    self.fresh[side][idx] |= 8;
+                    (self.spots[side][pos].bound, self.spots[side][pos].bound_new) = (0, true);
                     let of = parts.iter().find_map(|p| p.strip_prefix("[of] ")).and_then(|p| self.place_of(p.trim()));
                     if let Some((s, p)) = of.or(mover) {
                         let by = (s, self.mon_ref(s, p).idx as usize, s * ACTIVE + p);
@@ -3355,8 +3413,7 @@ impl Follower {
                     if arg(4) == "[fatigue]" || parts.contains(&"[fatigue]") {
                         self.rampage[side][idx] = NO_MOVE;
                     }
-                    self.counts.confusion[side][idx] = 0;
-                    self.fresh[side][idx] |= 2;
+                    (self.spots[side][pos].confused, self.spots[side][pos].confused_new) = (0, true);
                 }
                 let of = parts.iter().find_map(|p| p.strip_prefix("[of] ")).and_then(|p| self.place_of(p.trim()));
                 let source = of.or(mover).map(|(s, p)| (s, self.mon_ref(s, p).idx as usize, s * ACTIVE + p));
@@ -3368,7 +3425,14 @@ impl Follower {
                     VolKind::Taunt => base + (turns > 0 && begun > 0) as u8,
                     VolKind::Encore => base + (begun > 0) as u8,
                     VolKind::Disable => base.saturating_sub((begun == 0 || moving) as u8),
-                    VolKind::Healblock if from.contains("Psychic Noise") || arg(3).contains("Psychic Noise") => 2,
+                    // (Psychic Noise's is put up without a word of where it came from: the move under way says.)
+                    VolKind::Healblock
+                        if from.contains("Psychic Noise")
+                            || arg(3).contains("Psychic Noise")
+                            || self.last_move == mv::PSYCHICNOISE =>
+                    {
+                        2
+                    }
                     _ => base,
                 };
                 let about = match vol {
@@ -3410,13 +3474,12 @@ impl Follower {
                     (spot.attacked, spot.last_damage) = (true, 0);
                 }
                 if name == "confusion" {
-                    self.counts.confusion[side][idx] = 0;
+                    self.spots[side][pos].confused = 0;
                 }
             }
             "switch" | "drag" => {
-                // A new stay: what was kept of the last one at this position went with it.
-                self.counts.confusion[side][idx] = 0;
-                self.counts.trap[side][idx] = 0;
+                // A new stay: what was kept of the last one at this position went with it (the
+                // counts kept with the stay went with the `Spot`, `Follower::enter`).
                 self.rampage[side][idx] = NO_MOVE;
             }
             _ => {}
@@ -3798,11 +3861,7 @@ impl Follower {
                         c.data = if v.about == NO_MOVE { 0 } else { v.about + 1 };
                     }
                     if c.duration == 0 {
-                        c.duration = match v.ends {
-                            _ if v.left > 0 => v.left,
-                            Ends::After(n) => n,
-                            _ => 0,
-                        };
+                        c.duration = v.turns_left();
                     }
                     // Whoever keeps it up, where the engine asks (Leech Seed's healer, a binding
                     // move's user, Yawn's, Attract's, Imprison's).
@@ -3853,8 +3912,7 @@ impl Follower {
             for idx in 0..b.sides[s].n as usize {
                 let m = &mut b.sides[s].team[idx];
                 if m.status == Status::Frz {
-                    // (Frozen for three attempts at most: `conditions.rs`, Champions.)
-                    m.status_time = 3u8.saturating_sub(self.frozen[s][idx]).max(1);
+                    m.status_time = frozen_time(self.frozen[s][idx]);
                 }
             }
         }
@@ -3865,6 +3923,7 @@ impl Follower {
     /// Pokémon is not under now.
     fn counts_now(&self, b: &Battle) -> Counts {
         let mut c = self.counts;
+        (c.confusion, c.trap) = ([[0; MAX_TEAM]; 2], [[0; MAX_TEAM]; 2]);
         for s in 0..2 {
             for idx in 0..MAX_TEAM {
                 let r = MonRef { side: s as u8, idx: idx as u8 };
@@ -3873,15 +3932,23 @@ impl Follower {
                 if idx >= b.sides[s].n as usize || m.status != Status::Slp {
                     c.sleep[s][idx] = 0;
                 }
-                let has = |kind: VolKind| here && b.vols(r).has(kind);
-                if !has(VolKind::Confusion) {
-                    c.confusion[s][idx] = 0;
-                }
-                if !has(VolKind::Lockedmove) {
+                if !(here && b.vols(r).has(VolKind::Lockedmove)) {
                     c.rampage[s][idx] = 0;
                 }
-                if !has(VolKind::Partiallytrapped) {
-                    c.trap[s][idx] = 0;
+            }
+            // Confusion and binding, from the stay at each position, onto whoever stands there.
+            for pos in 0..ACTIVE.min(b.sides[s].n as usize) {
+                let r = b.active(s, pos);
+                let m = b.mon(r);
+                if !m.is_active || m.fainted {
+                    continue;
+                }
+                let spot = &self.spots[s][pos];
+                if b.vols(r).has(VolKind::Confusion) {
+                    c.confusion[s][r.idx as usize] = spot.confused;
+                }
+                if b.vols(r).has(VolKind::Partiallytrapped) {
+                    c.trap[s][r.idx as usize] = spot.bound;
                 }
             }
         }
@@ -4048,7 +4115,11 @@ impl Follower {
             }
             Some(b) => {
                 let speeds = self.speeds.as_ref().ok_or("no request has been taken in")?;
-                observe_battle(b, &self.timers, speeds, &self.stats, self.side, f, i);
+                // (The observation gives a sleep count only to a Pokémon shown asleep, and the
+                // rebuilt battle leaves the other side's statuses to what it was shown.)
+                let mut counts = self.counts_now(b);
+                counts.sleep = self.counts.sleep;
+                observe_battle(b, &self.timers, speeds, &counts, &self.stats, self.side, f, i);
                 masks_of(b, self.side, mask)
             }
         };

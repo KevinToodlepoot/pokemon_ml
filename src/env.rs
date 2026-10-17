@@ -457,7 +457,7 @@ impl Game {
     pub fn observe(&self, view: usize, f: &mut [f32], i: &mut [i16], mask: &mut [u8]) {
         match &self.battle {
             None => observe_preview(self.rosters(), &self.speeds, &self.stats[view], self.open, view, f, i),
-            Some(b) => observe_battle(b, &self.timers, &self.speeds, &self.stats[view], view, f, i),
+            Some(b) => observe_battle(b, &self.timers, &self.speeds, &self.counts, &self.stats[view], view, f, i),
         }
         let n = self.masks(view, mask);
         let info = &mut i[OBS_I - crate::obs::INFO..];

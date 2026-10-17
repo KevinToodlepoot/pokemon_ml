@@ -648,6 +648,16 @@ fn layout(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     d.set_item("preview_actions", N_PREVIEW)?;
     d.set_item("roster", obs::ROSTER)?;
     d.set_item("format", Format::current().id.as_str())?;
+    d.set_item("obs_layout", obs::OBS_LAYOUT)?;
+    // The counts in a position's features and the lengths they are taken over (`obs`, obs-2).
+    let timed: Vec<(&str, u8)> = obs::TIMED_VOLATILES.iter().map(|k| (k.id(), k.data().duration)).collect();
+    d.set_item("timed_volatiles", timed)?;
+    let counted: Vec<(&str, u8)> = obs::COUNTED_VOLATILES.iter().map(|(k, n)| (k.id(), *n)).collect();
+    d.set_item("counted_volatiles", counted)?;
+    let slots: Vec<(&str, u8)> = obs::TIMED_SLOTS.iter().map(|(k, n)| (k.id(), *n)).collect();
+    d.set_item("timed_slots", slots)?;
+    d.set_item("sleep_max", obs::SLEEP_MAX)?;
+    d.set_item("freeze_max", obs::FREEZE_MAX)?;
     let [species, items, abilities, moves] = obs::vocab();
     let vocab = PyDict::new(py);
     vocab.set_item("species", species)?;

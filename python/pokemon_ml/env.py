@@ -22,6 +22,8 @@ NAMES = _engine.names()
 
 OBS_F, OBS_I, OBS_M = LAYOUT["obs_f"], LAYOUT["obs_i"], LAYOUT["obs_m"]
 N_ACTIONS, N_PREVIEW = LAYOUT["actions"], LAYOUT["preview_actions"]
+# What the observation holds and where: changes whenever a feature moves or changes meaning.
+OBS_LAYOUT = LAYOUT["obs_layout"]
 PASS = N_ACTIONS - 1
 # info: phase, legal joint actions, turn, whether there is a choice to make
 PREVIEW, MOVE, SWITCH = 0, 1, 2

@@ -50,6 +50,13 @@
 //! the viewer may not have seen makes them last 8 turns for 5. How long they
 //! have been up is, and that is what is given ([`Timers`]). Conditions no
 //! item extends (Trick Room, Tailwind) are given by the turns they have left.
+//!
+//! Every condition on a Pokémon or a position that has a limit is given a count
+//! ([`OBS_LAYOUT`] `obs-2`): the volatiles of a set length by the turns they have
+//! run ([`TIMED_VOLATILES`]), those of a random length by how far they have run
+//! as both players can count it ([`COUNTED_VOLATILES`], from [`Counts`]), Wish
+//! and Future Sight by the turns to go ([`TIMED_SLOTS`]), and on each Pokémon's
+//! token how long it has slept and how many turns it has stayed frozen.
 
 use std::sync::OnceLock;
 
@@ -57,6 +64,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::battle::{PokemonSet, calc_stats};
 use crate::data::*;
+use crate::env::Counts;
 use crate::shown::{ItemShown, Shown, UNKNOWN};
 use crate::speed::{self, Belief, First, Speeds};
 use crate::state::*;
@@ -77,11 +85,68 @@ pub const MOVE_TOKENS: usize = ACTIVE * MAX_MOVES;
 pub const INFO: usize = 4;
 
 pub const FIELD_F: usize = 64;
-pub const MON_F: usize = 52;
-pub const ACT_F: usize = 125;
+pub const MON_F: usize = 54;
+pub const ACT_F: usize = 146;
 pub const MOVE_F: usize = 4;
 /// Where a position's volatile conditions begin in its features, one flag for each [`VolKind`].
 pub const ACT_VOLATILES: usize = 38;
+/// Where a position's counts begin ([`TIMED_VOLATILES`], then [`COUNTED_VOLATILES`]), after
+/// the flags and the two numbers that were there before them (Perish Song's, the protect run).
+pub const ACT_COUNTS: usize = ACT_VOLATILES + N_VOLATILES + 2;
+
+/// The version of what an observation holds and where. It changes whenever a feature moves
+/// or changes meaning, so that a model trained on one layout is not fed another.
+///
+/// * `obs-1`: everything up to engine `088fe57`.
+/// * `obs-2`: a count for every condition with a limit (D75, widened 2026-10-17): the
+///   [`TIMED_VOLATILES`], the [`COUNTED_VOLATILES`] and the [`TIMED_SLOTS`] on a position,
+///   and how long a Pokémon has slept or stayed frozen on its token.
+pub const OBS_LAYOUT: &str = "obs-2";
+
+/// Volatile conditions that last a set number of turns, each given as the turns it has run,
+/// `(L - left) / L`, with `L` its usual length ([`VolKind::data`]'s `duration`) and `left` the
+/// turns it has left. That is the count from a usual start; a start the battle lengthened or
+/// shortened in plain sight (a Taunt or an Encore on a Pokémon that has already moved, a
+/// Disable on one yet to, a Heal Block from Psychic Noise) shifts it by as much, so that the
+/// same number always means the same turns left. The rest of the volatiles with a length are
+/// counted elsewhere (Perish Song, the protect run), over within the turn they begin, kept
+/// from the observation ([`HIDDEN_VOLATILES`]), or of a random length ([`COUNTED_VOLATILES`]).
+pub const TIMED_VOLATILES: [VolKind; 17] = [
+    VolKind::Taunt,
+    VolKind::Encore,
+    VolKind::Disable,
+    VolKind::Healblock,
+    VolKind::Magnetrise,
+    VolKind::Syrupbomb,
+    VolKind::Uproar,
+    VolKind::Throatchop,
+    VolKind::Lockon,
+    VolKind::Yawn,
+    VolKind::Mustrecharge,
+    VolKind::Twoturnmove,
+    VolKind::Fly,
+    VolKind::Dig,
+    VolKind::Dive,
+    VolKind::Bounce,
+    VolKind::Phantomforce,
+];
+
+/// Volatile conditions of a random length, given as how far they have run as both players
+/// can count it ([`Counts`]), over the most they can run: confusion (2 to 5 of the holder's
+/// move attempts) and a binding move (4 or 5 turns of damage). How long they have left is the
+/// dice's, and is not given. A rampage is left out with its flag ([`HIDDEN_VOLATILES`]): one
+/// can end without a word (on its last turn, a Pokémon already confused is told nothing), so
+/// how far it has run is not something every player can count.
+pub const COUNTED_VOLATILES: [(VolKind, u8); 2] = [(VolKind::Confusion, 5), (VolKind::Partiallytrapped, 5)];
+
+/// Conditions on a position that come true after a set number of turns, with that number:
+/// Wish (at the end of the next turn) and Future Sight or Doom Desire (two turns on).
+pub const TIMED_SLOTS: [(SlotCond, u8); 2] = [(SlotCond::Wish, 2), (SlotCond::Futuremove, 3)];
+
+/// The most attempts a Pokémon sleeps or stays frozen for in Champions: what its token's
+/// counts are taken over (`conditions.rs`: sleep lasts 2 or 3, a freeze 3 at most).
+pub const SLEEP_MAX: u8 = 3;
+pub const FREEZE_MAX: u8 = 3;
 
 pub const OBS_F: usize = FIELD_F + MONS * MON_F + ACTIVES * ACT_F + MOVE_TOKENS * MOVE_F;
 pub const OBS_I: usize = MONS * MON_IDS + ACTIVES * ACT_IDS + MOVE_TOKENS + INFO;
@@ -143,8 +208,8 @@ pub fn layout() -> (Vec<Part>, Vec<Part>) {
 /// some (a Choice lock, Unburden). Some are the engine's own notes during a
 /// turn (Counter's memory of the last hit). And some are things no line of
 /// Showdown's log says, so that a player following a battle from the log
-/// could not be given them: a flinch that has yet to stop a move, how far
-/// into a rampage a Pokémon is. What matters of those to a player's own
+/// could not be given them: a flinch that has yet to stop a move, how many
+/// turns a rampage has left. What matters of those to a player's own
 /// Pokémon comes with its moves instead: which are disabled, and whether it
 /// is locked into one.
 pub const HIDDEN_VOLATILES: [VolKind; 16] = [
@@ -385,6 +450,9 @@ struct Tok {
     /// The lowest and highest its Speed stat can be, and what is known of an item that changes it.
     speed: (u32, u32),
     speed_items: [bool; 4],
+    /// Attempts it has slept through and turns it has stayed frozen (0 if neither).
+    asleep: u8,
+    frozen: u8,
     species: i16,
     item: i16,
     lost: i16,
@@ -416,6 +484,8 @@ impl Tok {
             pp: [0.0; MAX_MOVES],
             speed: (0, 0),
             speed_items: [false; 4],
+            asleep: 0,
+            frozen: 0,
             species: id(species),
             item: ID_UNKNOWN,
             lost: ID_NONE,
@@ -485,6 +555,8 @@ impl Tok {
         w.put(self.speed.0 as f32 / 200.0);
         w.put(self.speed.1 as f32 / 200.0);
         self.speed_items.iter().for_each(|&on| w.flag(on));
+        w.put(self.asleep as f32 / SLEEP_MAX as f32);
+        w.put(self.frozen as f32 / FREEZE_MAX as f32);
         debug_assert_eq!(w.at, MON_F);
         i[0] = self.species;
         i[1] = self.item;
@@ -591,6 +663,51 @@ pub(crate) fn last_to_choose(b: &Battle, side: usize, pos: usize) -> bool {
     })
 }
 
+/// A [`TIMED_VOLATILES`] count from the turns the condition has left.
+pub fn timed_count(kind: VolKind, left: u8) -> f32 {
+    let most = kind.data().duration as f32;
+    (most - left as f32) / most
+}
+
+/// Whether the end-of-turn step has run in the turn the battle is in: at a request for
+/// replacements after it, as opposed to a move request or a switch in the middle of the turn.
+fn turn_ended(b: &Battle) -> bool {
+    b.request == Request::Switch && b.turn_over()
+}
+
+/// How many end-of-turn steps a [`TIMED_SLOTS`] condition has to go, this turn's included if it
+/// has yet to run, from the turn number it keeps (`conditions.rs`: Wish keeps the turn it was
+/// made in, counted from 0, and comes true at the end of the next turn; Future Sight keeps
+/// the turn after, counted from 1, and comes true at the end of the turn after that).
+pub fn slot_left(b: &Battle, kind: SlotCond, kept: i16) -> i32 {
+    let lands = match kind {
+        SlotCond::Wish => kept as i32 + 2,
+        _ => kept as i32 + 1,
+    };
+    let most = TIMED_SLOTS.iter().find(|t| t.0 == kind).map_or(0, |t| t.1 as i32);
+    (lands - b.turn as i32 + 1 - turn_ended(b) as i32).clamp(0, most)
+}
+
+/// What [`slot_left`] reads back as `left`: the turn number a [`TIMED_SLOTS`] condition keeps.
+pub fn slot_kept(b: &Battle, kind: SlotCond, left: i32) -> i16 {
+    let lands = left + b.turn as i32 - 1 + turn_ended(b) as i32;
+    (match kind {
+        SlotCond::Wish => lands - 2,
+        _ => lands - 1,
+    }) as i16
+}
+
+/// A Pokémon's sleep and freeze counts for its token: the attempts it has slept through (as
+/// counted, [`Counts`]) and the turns it has stayed frozen (three at most in Champions, so its
+/// `status_time` says how many are gone), for the status the viewer is shown.
+fn held_back(status: Status, slept: u8, status_time: u8) -> (u8, u8) {
+    match status {
+        Status::Slp => (slept, 0),
+        Status::Frz => (0, FREEZE_MAX.saturating_sub(status_time)),
+        _ => (0, 0),
+    }
+}
+
 /// The last two numbers of `info` (how many joint actions are legal, and
 /// whether there is a choice to make) are left for whoever works out the
 /// legal actions.
@@ -598,6 +715,7 @@ pub fn observe_battle(
     b: &Battle,
     timers: &Timers,
     speeds: &Speeds,
+    counts: &Counts,
     stats: &[[u16; 6]; ROSTER],
     view: usize,
     f: &mut [f32],
@@ -676,6 +794,7 @@ pub fn observe_battle(
         } else {
             0
         };
+        (tok.asleep, tok.frozen) = held_back(tok.status, counts.sleep[view][idx], m.status_time);
         // Its stats as its player is told them: its own, for the forme it is in. What a
         // battle does to them is not said (after Transform or Power Split they are partly
         // another Pokémon's).
@@ -768,8 +887,16 @@ pub fn observe_battle(
                 (tok.hp, tok.status, tok.active) = (hp as f32 / 100.0, status, true);
                 tok.tox = if status == Status::Tox { public_toxic_stage(b, r) } else { 0 };
                 tok.transformed = m.transformed;
+                (tok.asleep, tok.frozen) = held_back(status, counts.sleep[opp][r.idx as usize], m.status_time);
             }
-            None => (tok.hp, tok.status, tok.fainted) = (rec.hp as f32 / 100.0, rec.status, rec.fainted),
+            None => {
+                (tok.hp, tok.status, tok.fainted) = (rec.hp as f32 / 100.0, rec.status, rec.fainted);
+                // (Not for a record whose Pokémon is in fact on the field under another name, in
+                // disguise: what it has slept through since is counted where the viewer sees it.)
+                if !rec.fainted && !them.team[a].is_active {
+                    (tok.asleep, tok.frozen) = held_back(rec.status, counts.sleep[opp][a], them.team[a].status_time);
+                }
+            }
         }
         // A Mega Stone in plain sight, on a side that has not used one yet.
         let species = (tok.species - ID_BASE) as u16;
@@ -866,8 +993,22 @@ pub fn observe_battle(
         w.put(vols.get(VolKind::Perishsong).map_or(0.0, |v| v.duration as f32 / 3.0));
         // How unlikely another Protect is to work: 0 after none, 2/3 after one, 8/9 after two.
         w.put(vols.get(VolKind::Stall).map_or(0.0, |v| 1.0 - 1.0 / v.data.max(1) as f32));
+        debug_assert_eq!(w.at, ACT_COUNTS);
+        for kind in TIMED_VOLATILES {
+            w.put(vols.get(kind).map_or(0.0, |v| timed_count(kind, v.duration)));
+        }
+        let idx = r.idx as usize;
+        for (kind, most) in COUNTED_VOLATILES {
+            let n = if kind == VolKind::Confusion { counts.confusion[side][idx] } else { counts.trap[side][idx] };
+            // (The counts are 0 for a condition the Pokémon is not under: `Counts`.)
+            w.put(n as f32 / most as f32);
+        }
+        let slots = &b.sides[side].slot_conds[pos];
         for kind in SlotCond::ALL {
-            w.flag(b.sides[side].slot_conds[pos].has(kind));
+            w.flag(slots.has(kind));
+        }
+        for (kind, most) in TIMED_SLOTS {
+            w.put(slots.get(kind).map_or(0.0, |c| (most as i32 - slot_left(b, kind, c.st.a)) as f32 / most as f32));
         }
         // Against each position across the field, with moves of the same priority: this one
         // goes first, goes second, or the viewer cannot tell.

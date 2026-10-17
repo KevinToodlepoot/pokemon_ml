@@ -6,12 +6,14 @@ use vgc_engine::data::{ABILITIES, ITEMS, MOVES, SPECIES, ab, ability_id, item_id
 use vgc_engine::env::{Baseline, Config, Game, GameState, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
 use vgc_engine::format::{Format, ShowdownSet};
 use vgc_engine::obs::{
-    ACT_F, ACT_VOLATILES, ACTIVES, FIELD_F, HIDDEN_VOLATILES, ID_BASE, ID_NONE, ID_UNKNOWN, MON_F, MON_IDS, MONS,
-    MOVE_F, OBS_F, OBS_I, Phase, ROSTER, item_table, layout, move_table, species_table, vocab,
+    ACT_COUNTS, ACT_F, ACT_VOLATILES, ACTIVES, COUNTED_VOLATILES, FIELD_F, HIDDEN_VOLATILES, ID_BASE, ID_NONE,
+    ID_UNKNOWN, MON_F, MON_IDS, MONS, MOVE_F, OBS_F, OBS_I, OBS_LAYOUT, Phase, ROSTER, TIMED_SLOTS, TIMED_VOLATILES,
+    item_table, layout, move_table, species_table, vocab,
 };
 use vgc_engine::position::{BattleState, CondState, PokemonState, SideState};
 use vgc_engine::rng::Rng;
 use vgc_engine::teams::{Pool, PoolTeam, Variation};
+use vgc_engine::data::{SlotCond, VolKind};
 use vgc_engine::{Choice, PokemonSet, Request};
 
 fn pool(teams: usize, seed: u16) -> Pool {
@@ -798,4 +800,152 @@ fn the_counts_of_hidden_length_effects_advance_as_they_run() {
         // The counts go with the game state.
         assert_eq!(Game::from_state(&g.to_state()).unwrap().counts(), c);
     }
+}
+
+#[test]
+fn every_timed_count_has_a_length_and_the_counts_fit_the_token() {
+    assert_eq!(OBS_LAYOUT, "obs-2");
+    for kind in TIMED_VOLATILES {
+        assert!(kind.data().duration >= 2, "{} lasts more than the turn it begins", kind.id());
+        assert!(!HIDDEN_VOLATILES.contains(&kind), "{} is shown", kind.id());
+    }
+    for (kind, _) in COUNTED_VOLATILES {
+        assert!(!HIDDEN_VOLATILES.contains(&kind), "{} is shown", kind.id());
+    }
+    // The counts, the slot flags, their counts and who moves first fill the rest of the token.
+    let n = TIMED_VOLATILES.len() + COUNTED_VOLATILES.len() + SlotCond::ALL.len() + TIMED_SLOTS.len() + 6;
+    assert_eq!(ACT_COUNTS + n, ACT_F);
+}
+
+/// A game at a move request a few turns in, with a Pokémon standing in each side's first place.
+fn a_few_turns_in(seed: u16) -> Game {
+    let mut rng = Rng::from_words([seed, 9, 9, 9]);
+    for k in 0.. {
+        let mut g = Game::new(teams(seed + k), true).unwrap();
+        g.act([[0, 0], [0, 0]], [seed, 1, 2, 3]).unwrap();
+        while !g.ended() && g.battle().unwrap().turn < 4 {
+            let actions = [g.baseline(0, Baseline::Random, &mut rng), g.baseline(1, Baseline::Random, &mut rng)];
+            g.act(actions, [rng.below(65536) as u16, 2, 3, 4]).unwrap();
+        }
+        let ok = |g: &Game| {
+            let b = g.battle().unwrap();
+            (0..2).all(|s| {
+                let m = b.mon(b.active(s, 0));
+                m.is_active && !m.fainted && m.status as u8 == 0
+            })
+        };
+        if !g.ended() && g.phase() == Phase::Move && ok(&g) {
+            return g;
+        }
+    }
+    unreachable!()
+}
+
+#[test]
+fn every_condition_with_a_limit_is_counted() {
+    // (A seed whose sleeper keeps its sleep: a Lum Berry or Insomnia would cure it as the battle is set up.)
+    for seed in 31.. {
+        if counted_in(seed) {
+            return;
+        }
+    }
+}
+
+/// [`every_condition_with_a_limit_is_counted`] from one game; `false` if its sleeper was cured.
+fn counted_in(seed: u16) -> bool {
+    let g = a_few_turns_in(seed);
+    let b = g.battle().unwrap();
+    let turn = b.turn as i16;
+    let (idx, other) = (b.active(0, 0).idx as usize, b.active(1, 0).idx as usize);
+    let mut v = serde_json::to_value(g.to_state()).unwrap();
+    let first = v["battle"]["sides"][0]["pokemon"][idx]["moves"][0]["id"].clone();
+    let cond = |id: &str, turns: Option<u8>| {
+        let mut c = serde_json::json!({ "id": id });
+        if let Some(t) = turns {
+            c["turns"] = t.into();
+        }
+        c
+    };
+    let mut encore = cond("encore", Some(3));
+    encore["move_id"] = first.clone();
+    let mut disable = cond("disable", Some(3));
+    disable["move_id"] = first.clone();
+    let mut confusion = cond("confusion", None);
+    confusion["value"] = 2.into();
+    let vols = [
+        cond("taunt", Some(2)),
+        encore,
+        disable,
+        cond("healblock", Some(1)),
+        cond("yawn", Some(1)),
+        cond("magnetrise", Some(5)),
+        confusion,
+    ];
+    let me = &mut v["battle"]["sides"][0]["pokemon"][idx];
+    me["volatiles"] = serde_json::Value::Array(vols.to_vec());
+    // Wish made last turn comes true at the end of this one; Future Sight made last turn, at the end of the next.
+    let mut wish = cond("wish", None);
+    (wish["value"], wish["a"]) = (50.into(), (turn - 2).into());
+    let mut future = cond("futuremove", None);
+    future["a"] = turn.into();
+    v["battle"]["sides"][0]["slot_conditions"] = serde_json::json!([[wish, future], []]);
+    // The other side's: asleep for one attempt so far; one of its own frozen for one turn.
+    let them = &mut v["battle"]["sides"][1]["pokemon"][other];
+    (them["status"], them["status_turns"]) = ("slp".into(), 2.into());
+    v["counts"]["sleep"][1][other] = 1.into();
+    v["counts"]["confusion"][0][idx] = 2.into();
+    let st: GameState = serde_json::from_value(v).unwrap();
+    let g = Game::from_state(&st).unwrap();
+    let b = g.battle().unwrap();
+    if b.mon(b.active(1, 0)).status as u8 == 0 {
+        return false;
+    }
+    let left = |kind: VolKind| b.vols(b.active(0, 0)).get(kind).unwrap().duration;
+    assert_eq!((left(VolKind::Taunt), left(VolKind::Healblock)), (2, 1), "the turns left as written");
+    for view in 0..2 {
+        let o = Obs::of(&g, view);
+        // The position of side 0's first Pokémon: the viewer's own first, or the other side's.
+        let a = o.act_feats(if view == 0 { 0 } else { 2 });
+        let count = |kind: VolKind| a[ACT_COUNTS + TIMED_VOLATILES.iter().position(|&k| k == kind).unwrap()];
+        assert_eq!(count(VolKind::Taunt), 1.0 / 3.0, "a Taunt with 2 of 3 turns left has run 1");
+        assert_eq!(count(VolKind::Encore), 0.0, "an Encore that began after its target moved: 3 left, so 0");
+        assert_eq!(count(VolKind::Disable), 2.0 / 5.0);
+        assert_eq!(count(VolKind::Healblock), 4.0 / 5.0, "a Heal Block in its last turn reads as one of 5");
+        assert_eq!(count(VolKind::Yawn), 1.0 / 2.0);
+        assert_eq!(count(VolKind::Magnetrise), 0.0);
+        assert_eq!(count(VolKind::Throatchop), 0.0, "absent");
+        let after = ACT_COUNTS + TIMED_VOLATILES.len();
+        assert_eq!(a[after], 2.0 / 5.0, "confused for two attempts");
+        assert_eq!(a[after + 1], 0.0, "not bound");
+        let slots = after + COUNTED_VOLATILES.len();
+        assert_eq!(&a[slots..slots + 2], &[1.0, 1.0], "Wish and Future Sight are up");
+        let timed = slots + SlotCond::ALL.len();
+        assert_eq!(a[timed], 1.0 / 2.0, "Wish comes true at the end of this turn");
+        assert_eq!(a[timed + 1], 1.0 / 3.0, "Future Sight at the end of the next");
+    }
+    // The sleeper's token, seen from either side: one attempt of three slept through. (A
+    // position's first id is the token of the Pokémon standing there, plus one.)
+    let (own, theirs) = (Obs::of(&g, 1), Obs::of(&g, 0));
+    let (j, k) = (own.act_ids(0)[0] as usize - 1, theirs.act_ids(2)[0] as usize - 1);
+    assert_eq!(own.mon_feats(j)[52], 1.0 / 3.0, "its own");
+    assert_eq!(theirs.mon_feats(k)[52], 1.0 / 3.0, "the other side's, shown asleep");
+    assert_eq!(theirs.mon_feats(k)[53], 0.0, "not frozen");
+    true
+}
+
+#[test]
+fn a_freeze_is_counted_in_turns() {
+    let g = a_few_turns_in(47);
+    let b = g.battle().unwrap();
+    let idx = b.active(1, 0).idx as usize;
+    let mut v = serde_json::to_value(g.to_state()).unwrap();
+    let them = &mut v["battle"]["sides"][1]["pokemon"][idx];
+    // (`status_turns` holds what the engine keeps: for a freeze, the attempts it has left.)
+    (them["status"], them["status_turns"]) = ("frz".into(), 2.into());
+    let g = Game::from_state(&serde_json::from_value(v).unwrap()).unwrap();
+    let (theirs, own) = (Obs::of(&g, 0), Obs::of(&g, 1));
+    let (k, j) = (theirs.act_ids(2)[0] as usize - 1, own.act_ids(0)[0] as usize - 1);
+    assert_eq!(theirs.mon_feats(k)[53], 1.0 / 3.0, "frozen for one turn of three");
+    assert_eq!(own.mon_feats(j)[53], 1.0 / 3.0);
+    assert_eq!(own.mon_feats(j)[52], 0.0, "not asleep");
 }
