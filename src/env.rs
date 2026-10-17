@@ -267,13 +267,20 @@ impl Game {
     }
 
     /// A game taken up from a [`GameState`]: at Team Preview if it has no
-    /// battle, else at the battle's request. Bookkeeping left out is taken as
+    /// battle (with the Speed beliefs it carries), else at the battle's
+    /// request. Bookkeeping left out is taken as
     /// if nothing had been seen before: the field conditions as just put up,
     /// each side's Speed as the sheets allow, the hidden-length effects as
     /// just begun.
     pub fn from_state(st: &GameState) -> Result<Game, Error> {
         let sets = |team: &[ShowdownSet]| team.iter().map(|s| s.to_set()).collect::<Result<Vec<_>, _>>();
         let mut g = Game::new([sets(&st.rosters[0])?, sets(&st.rosters[1])?], st.open)?;
+        // The Speed each side has been shown of the other's, carried even by a state without a
+        // battle (a probe of what the beliefs allow, D72).
+        if let Some(sp) = &st.speeds {
+            g.speeds = *sp;
+            g.speeds.strict = false;
+        }
         let Some(bs) = &st.battle else {
             return Ok(g);
         };
@@ -293,10 +300,6 @@ impl Game {
                 t
             }
         };
-        if let Some(sp) = &st.speeds {
-            g.speeds = *sp;
-            g.speeds.strict = false;
-        }
         g.speeds.resume(&b);
         g.counts = st.counts.unwrap_or_default();
         g.battle = Some(b);

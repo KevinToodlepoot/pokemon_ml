@@ -378,6 +378,54 @@ const CHARGING: [VolKind; 10] = [
     VolKind::Electroshot,
 ];
 
+/// The kinds of protocol line the follower or its reader takes something from.
+const READ: [&str; 59] = [
+    "-ability", "-activate", "-anim", "-block", "-boost", "-clearallboost", "-clearboost", "-clearnegativeboost",
+    "-clearpositiveboost", "-copyboost", "-curestatus", "-damage", "-end", "-endability", "-enditem", "-fail",
+    "-fieldactivate", "-fieldend", "-fieldstart", "-formechange", "-heal", "-immune", "-invertboost", "-item", "-mega",
+    "-miss", "-mustrecharge", "-prepare", "-setboost", "-sethp", "-sideend", "-sidestart", "-singlemove",
+    "-singleturn", "-start", "-status", "-swapboost", "-swapsideconditions", "-transform", "-unboost", "-waiting",
+    "-weather", "cant", "clearpoke", "detailschange", "drag", "faint", "move", "player", "poke", "replace", "showteam",
+    "start", "swap", "switch", "teamsize", "tie", "turn", "upkeep",
+];
+
+/// The kinds it passes over, and why there is nothing in them to take (D84). Any other kind
+/// is counted ([`Follower::unknown`]) rather than ignored.
+const PASSED_OVER: [(&str, &str); 26] = [
+    ("", "a blank line between parts of a turn"),
+    ("split", "a private line and its public copy follow; each side is given its own (`Follower::own_lines`)"),
+    ("t:", "the time"),
+    ("gametype", "the format, known beforehand"),
+    ("gen", "the format, known beforehand"),
+    ("tier", "the format, known beforehand"),
+    ("rule", "the format, known beforehand"),
+    ("rated", "the format, known beforehand"),
+    ("title", "the room"),
+    ("teampreview", "Team Preview begins; the request says what to choose"),
+    ("j", "a user joins the room"),
+    ("l", "a user leaves the room"),
+    ("n", "a user changes name"),
+    ("c", "chat"),
+    ("raw", "a message for people"),
+    ("html", "a message for people"),
+    ("uhtml", "a message for people"),
+    ("uhtmlchange", "a message for people"),
+    ("-supereffective", "how well a move hit: the damage line has what it did"),
+    ("-resisted", "how well a move hit: the damage line has what it did"),
+    ("-crit", "how well a move hit: the damage line has what it did"),
+    ("-hitcount", "how many times a move hit: each hit's damage line is there"),
+    ("-hint", "a message for people"),
+    ("-ohko", "a one-hit KO: the damage and faint lines say it"),
+    ("-zbroken", "a hit through a protection (Piercing Drill): the ability line before it and the damage after say it"),
+    ("inactive", "the battle timer"),
+];
+
+/// Whether the follower knows what to make of a kind of protocol line: something to take, or
+/// nothing on purpose.
+fn known_kind(kind: &str) -> bool {
+    READ.contains(&kind) || PASSED_OVER.iter().any(|(k, _)| *k == kind)
+}
+
 #[derive(Clone, Debug, Default)]
 struct SideTrack {
     /// Each condition, how many layers of it, and how many turns have ended since it went up.
@@ -637,6 +685,8 @@ pub struct Follower {
     /// A rampage the move under way would begin (side, team index), until it is seen to land:
     /// one that hits nobody (an immune target, a miss) locks nobody in.
     rampage_pending: Option<(usize, usize)>,
+    /// Protocol lines of a kind the follower does not know, by kind (D84): reported, not ignored.
+    unknown: std::collections::BTreeMap<String, usize>,
     started: bool,
     ended: bool,
     winner: Option<usize>,
@@ -854,6 +904,7 @@ impl Follower {
             under_way: None,
             reached: Vec::new(),
             rampage_pending: None,
+            unknown: std::collections::BTreeMap::new(),
             started: false,
             ended: false,
             winner: None,
@@ -905,6 +956,11 @@ impl Follower {
 
     pub fn turn(&self) -> u16 {
         self.turn
+    }
+
+    /// Protocol lines taken in so far of a kind the follower does not know, by kind (D84).
+    pub fn unknown(&self) -> &std::collections::BTreeMap<String, usize> {
+        &self.unknown
     }
 
     pub fn ended(&self) -> bool {
@@ -1089,6 +1145,9 @@ impl Follower {
             return Ok(());
         }
         let kind = parts[1];
+        if !known_kind(kind) {
+            *self.unknown.entry(kind.to_string()).or_insert(0) += 1;
+        }
         let arg = |i: usize| parts.get(i).copied().unwrap_or("");
         let from = parts.iter().find_map(|p| p.strip_prefix("[from]")).map_or("", str::trim);
         // A queued move begins: note how things stand before the reader takes the line in.
@@ -2354,8 +2413,8 @@ impl Follower {
                     });
                 } else if name == "gravity" {
                     self.spot(side, pos).grounded();
-                } else if matches!(name.as_str(), "spite" | "eeriespell" | "leppaberry") && side == self.side {
-                    // PP taken from one of its moves, or given back.
+                } else if matches!(name.as_str(), "spite" | "eeriespell" | "leppaberry") {
+                    // PP taken from one of its moves, or given back: either side's (D84).
                     let restored = if self.reader.live_record(side, pos).is_some_and(|rec| rec.ability == ab::RIPEN)
                         && !self.spots[side][pos].has(VolKind::Gastroacid)
                     {
@@ -2363,12 +2422,28 @@ impl Follower {
                     } else {
                         10
                     };
-                    let n: u8 = arg(5).parse().unwrap_or(if name == "leppaberry" { restored } else { 0 });
-                    if let (Some(id), Some(own)) = (move_id(&to_id(arg(4))), self.own.get_mut(self.own_at[pos])) {
-                        let known = if own.copied.is_empty() { &mut own.pp } else { &mut own.copied };
-                        if let Some(slot) = known.iter_mut().find(|s| s.0 == id) {
-                            slot.1 =
-                                if name == "leppaberry" { (slot.1 + n).min(slot.2) } else { slot.1.saturating_sub(n) };
+                    let leppa = name == "leppaberry";
+                    let n: u8 = arg(5).parse().unwrap_or(if leppa { restored } else { 0 });
+                    let id = move_id(&to_id(arg(4)));
+                    if side == self.side {
+                        if let (Some(id), Some(own)) = (id, self.own.get_mut(self.own_at[pos])) {
+                            let known = if own.copied.is_empty() { &mut own.pp } else { &mut own.copied };
+                            if let Some(slot) = known.iter_mut().find(|s| s.0 == id) {
+                                slot.1 = if leppa { (slot.1 + n).min(slot.2) } else { slot.1.saturating_sub(n) };
+                            }
+                        }
+                    } else if let (Some(id), Some(entry)) =
+                        (id, self.reader.sides[side].active[pos].as_ref().map(|l| l.entry))
+                    {
+                        // The other side's, kept as PP spent.
+                        if self.their_pp.len() <= entry {
+                            self.their_pp.resize(entry + 1, Vec::new());
+                        }
+                        let spent = &mut self.their_pp[entry];
+                        match spent.iter_mut().find(|s| s.0 == id) {
+                            Some(s) => s.1 = if leppa { s.1.saturating_sub(n) } else { s.1.saturating_add(n) },
+                            None if !leppa => spent.push((id, n)),
+                            None => {}
                         }
                     }
                 }

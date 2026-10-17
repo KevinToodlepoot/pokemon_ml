@@ -15,7 +15,9 @@ use crate::format::{Format, ShowdownSet};
 use crate::obs::{self, INFO, OBS_F, OBS_I, Phase, Table};
 use crate::position::BattleState;
 use crate::rng::Rng;
-use crate::search::{self, Budget, Candidates, Cap, CellId, Follow, Leaves, Plan, SUMMARY, SimOpts, SolveOpts, Status};
+use crate::search::{
+    self, Budget, Candidates, Cap, CellId, Follow, Leaves, Mode, Plan, SUMMARY, SimOpts, SolveOpts, Status,
+};
 use crate::state::{ACTIVE, Battle, Choice, Request};
 use crate::teams::{Pool, Variation};
 
@@ -746,6 +748,15 @@ fn follow_of(s: &str) -> PyResult<Follow> {
     }
 }
 
+fn mode_of(s: &str) -> PyResult<Mode> {
+    match s {
+        "move" => Ok(Mode::Move),
+        "replacement" => Ok(Mode::Replacement),
+        "preview" => Ok(Mode::Preview),
+        _ => Err(PyValueError::new_err("mode is \"move\", \"replacement\" or \"preview\"")),
+    }
+}
+
 fn status_name(s: Status) -> &'static str {
     match s {
         Status::NeedCells => "need_cells",
@@ -753,6 +764,7 @@ fn status_name(s: Status) -> &'static str {
         Status::Converged { complete: false } => "converged_partial",
         Status::Capped(Cap::Steps) => "capped_steps",
         Status::Capped(Cap::Time) => "capped_time",
+        Status::Capped(Cap::Solver) => "capped_solver",
     }
 }
 
@@ -774,12 +786,13 @@ fn leaves_out(py: Python<'_>, l: Leaves) -> PyResult<LeavesOut<'_>> {
 /// what to do at a switch request before the leaf ("end_of_turn", "to_move", "none").
 /// `row_plans` / `col_plans`: per action, what each position brings in if it is asked to
 /// switch in the middle of the turn (the switch action 40–45, or 255 for the dice's
-/// choice), or `None` for no plans. Runs on `threads` worker threads (0: one per core)
-/// with the interpreter lock let go.
+/// choice), or `None` for no plans. `mode`: what `game` is ("move", "replacement" for a request
+/// for replacements at the end of a turn, "preview"; a cell of the last two is one step). Runs
+/// on `threads` worker threads (0: one per core) with the interpreter lock let go.
 #[pyfunction]
 #[pyo3(signature = (
     game, view, rows, cols, cells, seed, observe=true, keep_states=false, follow="end_of_turn", threads=0,
-    row_plans=None, col_plans=None
+    row_plans=None, col_plans=None, mode="move"
 ))]
 #[allow(clippy::too_many_arguments)]
 fn simulate<'py>(
@@ -796,11 +809,12 @@ fn simulate<'py>(
     threads: usize,
     row_plans: Option<Vec<(u8, u8)>>,
     col_plans: Option<Vec<(u8, u8)>>,
+    mode: &str,
 ) -> PyResult<LeavesOut<'py>> {
     let cells = cells_of(&cells)?;
     let (rows, cols) = (pairs(rows), pairs(cols));
     let (rp, cp) = (plans_of(row_plans), plans_of(col_plans));
-    let opts = SimOpts { observe, keep_states, follow: follow_of(follow)? };
+    let opts = SimOpts { observe, keep_states, follow: follow_of(follow)?, mode: mode_of(mode)? };
     let pool = search::pool(threads);
     let g = &game.inner;
     let leaves = py
@@ -812,7 +826,7 @@ fn simulate<'py>(
 /// The equilibrium of a zero-sum matrix (m × n float32, the value to the row player) by
 /// regret matching+: `(x, y, value, gap, iters)`. The true value is within half the gap of `value`.
 #[pyfunction]
-#[pyo3(signature = (matrix, max_iter=5000, tol=1e-4))]
+#[pyo3(signature = (matrix, max_iter=20000, tol=1e-4))]
 fn solve<'py>(
     py: Python<'py>,
     matrix: PyReadonlyArray2<'py, f32>,
@@ -868,11 +882,13 @@ impl PySearch {
     /// `rows`: the viewer's joint actions, likeliest first; `cols`: the other side's.
     /// `candidates`: `None` for every action at each oracle step, or the next so many.
     /// `row_plans` / `col_plans`: a plan per action (see `simulate`), or `None`; with plans
-    /// the same action may be listed with different plans.
+    /// the same action may be listed with different plans. `mode`: "move" (the default),
+    /// "replacement" or "preview" (see `simulate`; one set of dice: `seeds=1`). The root must
+    /// be what the mode says, and values handed in must lie in [-1, 1].
     #[new]
     #[pyo3(signature = (
         game, view, rows, cols, seed, candidates=None, seeds=16, initial=1, max_steps=None, time_cap=None, eps=1e-3,
-        max_iter=5000, tol=1e-4, row_plans=None, col_plans=None
+        max_iter=20000, tol=1e-4, row_plans=None, col_plans=None, mode="move"
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -891,6 +907,7 @@ impl PySearch {
         tol: f64,
         row_plans: Option<Vec<(u8, u8)>>,
         col_plans: Option<Vec<(u8, u8)>>,
+        mode: &str,
     ) -> PyResult<Self> {
         let budget = Budget {
             candidates: match candidates {
@@ -903,6 +920,7 @@ impl PySearch {
             time_cap: time_cap.map(std::time::Duration::from_secs_f64),
             eps,
             solver: SolveOpts { max_iter, tol },
+            mode: mode_of(mode)?,
         };
         let (view, rows, cols) = (side_index(view)?, pairs(rows), pairs(cols));
         let (rp, cp) = (plans_of(row_plans), plans_of(col_plans));
@@ -918,7 +936,7 @@ impl PySearch {
         Ok(PyArray1::from_vec(py, flat).reshape([w.len(), 3])?.into_any())
     }
 
-    /// Plays `cells` from the root (the module's `simulate` with this search's lists and seed).
+    /// Plays `cells` from the root (the module's `simulate` with this search's lists, seed and mode).
     #[pyo3(signature = (cells, observe=true, keep_states=false, follow="end_of_turn", threads=0))]
     fn simulate<'py>(
         &self,
@@ -930,7 +948,7 @@ impl PySearch {
         threads: usize,
     ) -> PyResult<LeavesOut<'py>> {
         let cells = cells_of(&cells)?;
-        let opts = SimOpts { observe, keep_states, follow: follow_of(follow)? };
+        let opts = SimOpts { observe, keep_states, follow: follow_of(follow)?, mode: self.inner.budget().mode };
         let pool = search::pool(threads);
         let s = &self.inner;
         let leaves = py.detach(|| s.simulate(&cells, &opts, &pool)).map_err(failed)?;
@@ -944,8 +962,10 @@ impl PySearch {
         self.inner.supply(&cells, values).map_err(failed)
     }
 
-    /// Moves the search on as far as it can: "need_cells", "converged", "converged_partial"
-    /// (a window of candidates was never widened to every action), "capped_steps" or "capped_time".
+    /// Moves the search on as far as it can: "need_cells", "converged", "capped_steps",
+    /// "capped_time" or "capped_solver" (a solve still above `tol` after `max_iter` rounds: no
+    /// candidate is compared against it). ("converged_partial" is no longer given: a window
+    /// slides on until every action has been looked at.)
     fn advance(&mut self, py: Python<'_>) -> &'static str {
         let s = &mut self.inner;
         status_name(py.detach(|| s.advance()))
@@ -990,7 +1010,8 @@ impl PySearch {
     /// What the search found, as a dict: `rows_in`, `cols_in` (indices into the lists),
     /// `x`, `y` (the mixes over them), `value`, `gap`, `cells` (arrays `row`, `col`, `n`,
     /// `mean`, `std` over every cell with a value), `supp_mass`, `steps`, `leaves`,
-    /// `elapsed` (seconds), `status` (`None` while going) and `scanned`.
+    /// `elapsed` (seconds), `status` (`None` while going), `scanned`, `lists` (the length of
+    /// each side's list), `iters` (rounds the last solve took) and `mode`.
     fn report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let r = self.inner.report();
         let d = PyDict::new(py);
@@ -1013,6 +1034,9 @@ impl PySearch {
         d.set_item("elapsed", r.elapsed.as_secs_f64())?;
         d.set_item("status", r.status.map(status_name))?;
         d.set_item("scanned", (r.scanned[0], r.scanned[1]))?;
+        d.set_item("lists", (r.lists[0], r.lists[1]))?;
+        d.set_item("iters", r.iters)?;
+        d.set_item("mode", r.mode.name())?;
         Ok(d)
     }
 }

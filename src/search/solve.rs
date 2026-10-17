@@ -23,7 +23,8 @@ pub struct SolveOpts {
 
 impl Default for SolveOpts {
     fn default() -> Self {
-        SolveOpts { max_iter: 5000, tol: 1e-4 }
+        // (20,000 rounds: 5,000 left gaps above `tol` on the larger matrices, D84.)
+        SolveOpts { max_iter: 20_000, tol: 1e-4 }
     }
 }
 

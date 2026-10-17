@@ -14,7 +14,7 @@ use vgc_engine::Choice;
 use vgc_engine::env::OBS_M;
 use vgc_engine::follow::Follower;
 use vgc_engine::obs::{OBS_F, OBS_I, Phase};
-use vgc_engine::replay::{FollowCase, FollowTally, Outcome, check_follow};
+use vgc_engine::replay::{FollowCase, FollowTally, Outcome, check_follow, walk_follow};
 
 fn cases() -> Vec<FollowCase> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/followed_battles.jsonl");
@@ -703,4 +703,83 @@ fn a_followers_game_state_loads_observes_as_it_does_and_counts_as_the_game_does(
         ["Illusion", "Transform", "a switch in the middle of a turn", "closed team sheets", "waiting for the other side"];
     assert!(tally.refused.keys().all(|why| known.contains(&why.as_str())), "{:?}", tally.refused);
     println!("{battles} battles, {} exports, refused {:?}", tally.asked, tally.refused);
+}
+
+#[test]
+fn the_other_sides_pp_follows_spite_eerie_spell_and_leppa_berry() {
+    // D84: PP given back by a Leppa Berry, or taken by Spite or Eerie Spell, is counted for the
+    // other side's Pokémon too, so the export has it as the game does.
+    let (mut lines, mut checked) = (0, 0);
+    // (Battles with open sheets, where the export can be asked for, that have such a line.)
+    let recorded: Vec<FollowCase> = [
+        include_str!("fixtures/sweep_regressions.jsonl"),
+        include_str!("fixtures/illusion_residual_guard_regressions.jsonl"),
+        include_str!("fixtures/item_transfer_regressions.jsonl"),
+        include_str!("fixtures/fresh_sweep_regressions.jsonl"),
+    ]
+    .iter()
+    .flat_map(|text| text.lines())
+    .map(|line| serde_json::from_str(line).unwrap())
+    .collect();
+    for case in recorded.iter().filter(|c| c.open_sheets) {
+        // Each such line: the step it came in, and who (side, position) and which move it was about.
+        let marks: Vec<(usize, usize, usize, u16)> = case
+            .steps
+            .iter()
+            .enumerate()
+            .flat_map(|(k, step)| step.after.log.iter().map(move |l| (k, l)))
+            .filter_map(|(k, l)| {
+                let p: Vec<&str> = l.split('|').collect();
+                let what = p.get(3).copied()?;
+                if p.get(1) != Some(&"-activate")
+                    || !matches!(what, "item: Leppa Berry" | "move: Spite" | "move: Eerie Spell")
+                {
+                    return None;
+                }
+                let who = p.get(2)?;
+                let side = if who.starts_with("p1") { 0 } else { 1 };
+                let pos = (who.as_bytes()[2] - b'a') as usize;
+                let mv = vgc_engine::data::move_id(&p.get(4)?.to_lowercase().replace([' ', '-'], ""))?;
+                Some((k + 1, side, pos, mv))
+            })
+            .collect();
+        lines += marks.len();
+        let outcome = walk_follow(case, &mut |game, followers, step| {
+            for &(at, side, pos, mv) in marks.iter().filter(|m| m.0 == step) {
+                // The other side's follower, whose export has this Pokémon as the log showed it.
+                let Ok(st) = followers[1 - side].game_state() else { continue };
+                let export = vgc_engine::env::Game::from_state(&st).map_err(|e| e.to_string())?;
+                let (truth, theirs) = (game.battle().unwrap(), export.battle().unwrap());
+                let pp = |b: &vgc_engine::Battle| {
+                    let m = b.mon(b.active(side, pos));
+                    m.moves[..m.n_moves as usize].iter().find(|s| s.id == mv).map(|s| s.pp)
+                };
+                if let (Some(a), Some(b)) = (pp(truth), pp(theirs)) {
+                    assert_eq!(b, a, "battle {} step {at}: the export's PP for move {mv} on p{}", case.id, side + 1);
+                    checked += 1;
+                }
+            }
+            Ok(())
+        });
+        assert!(matches!(outcome, Outcome::Pass(_)), "battle {}", case.id);
+    }
+    eprintln!("PP changes on the other side: {lines} lines, {checked} checked against the game");
+    assert!(lines >= 6 && checked >= 4, "{lines} lines, {checked} checked");
+}
+
+#[test]
+fn a_line_of_a_kind_the_follower_does_not_know_is_counted() {
+    // D84: nothing is read past unseen. Over the recorded battles every kind is one the follower
+    // reads or passes over on purpose; a kind it has never met is counted, by kind.
+    let mut tally = FollowTally::default();
+    for case in &cases() {
+        assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)), "battle {}", case.id);
+    }
+    assert!(tally.unknown.is_empty(), "lines of a kind the follower does not know: {:?}", tally.unknown);
+    let case = &cases()[0];
+    let mut me = follower_for(case, 0);
+    me.lines(&Follower::own_lines(0, &case.initial.log)).unwrap();
+    me.line("|-somethingnew|p1a: Whoever|what").unwrap();
+    me.line("|-somethingnew|p2a: Whoever|what").unwrap();
+    assert_eq!(me.unknown().get("-somethingnew"), Some(&2));
 }

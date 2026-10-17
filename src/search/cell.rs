@@ -65,18 +65,70 @@ pub enum Follow {
     None,
 }
 
+/// What the root of a search is, and so what one of its cells plays (D82). A search from a
+/// request for replacements or from Team Preview has to ask for it: the default refuses them,
+/// since a turn's worth of play from there is none at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Mode {
+    /// A move request: a cell plays the turn ([`Follow`] says what it does at a switch request).
+    #[default]
+    Move,
+    /// A request for replacements at the end of a turn: a cell sends each side's in, and its
+    /// leaf is the request that comes next (as a rule the next turn's move request): the
+    /// one-ply evaluation of a replacement. Nothing in it is left to the dice but the rare
+    /// tie, so a cell has one set of dice.
+    Replacement,
+    /// Team Preview: a cell is each side's pick of four, and its leaf the battle's first move
+    /// request, with the leads in. One set of dice, which seeds the battle.
+    Preview,
+}
+
+impl Mode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Move => "move",
+            Mode::Replacement => "replacement",
+            Mode::Preview => "preview",
+        }
+    }
+}
+
+/// Whether a search in `mode` can start from `root`: a move request for [`Mode::Move`], a request
+/// for replacements at the end of a turn for [`Mode::Replacement`], Team Preview for
+/// [`Mode::Preview`]. A finished battle, and a switch in the middle of a turn, have no search.
+pub fn check_root(root: &Game, mode: Mode) -> Result<(), Error> {
+    if root.ended() {
+        return Err(Error::BadState("the battle is over".into()));
+    }
+    match (root.phase(), mode) {
+        (Phase::Move, Mode::Move) | (Phase::Preview, Mode::Preview) => Ok(()),
+        (Phase::Switch, Mode::Replacement) if root.turn_over() => Ok(()),
+        (Phase::Switch, _) if !root.turn_over() => {
+            Err(Error::BadState("a switch in the middle of a turn: its moves are still to run".into()))
+        }
+        (Phase::Switch, Mode::Move) => {
+            Err(Error::BadState("a request for replacements: search it in mode \"replacement\"".into()))
+        }
+        (Phase::Preview, Mode::Move) => Err(Error::BadState("Team Preview: search it in mode \"preview\"".into())),
+        (phase, mode) => Err(Error::BadState(format!("a {phase:?} root is not searched in mode {:?}", mode.name()))),
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct SimOpts {
     /// Write each leaf's observation for the viewer (what a network reads).
     pub observe: bool,
     /// Keep each leaf's [`Game`] (for a search that goes on from it).
     pub keep_states: bool,
+    /// What a cell does at a switch request before its leaf, in [`Mode::Move`]. (A cell of the
+    /// other modes is one step, whatever this says.)
     pub follow: Follow,
+    pub mode: Mode,
 }
 
 impl Default for SimOpts {
     fn default() -> Self {
-        SimOpts { observe: true, keep_states: false, follow: Follow::EndOfTurn }
+        SimOpts { observe: true, keep_states: false, follow: Follow::EndOfTurn, mode: Mode::Move }
     }
 }
 
@@ -227,7 +279,8 @@ fn play(
     g.act(actions, w)?;
     // Replacements in the middle of the turn roll their own dice, apart from the battle's.
     sc.rng = Rng::from_words(words(root_seed ^ 0x5EED_5EED_5EED_5EED, k));
-    loop {
+    // (A replacement or a Team Preview pick is one step: its leaf is the request after it.)
+    while opts.mode == Mode::Move {
         if g.ended() || g.phase() != Phase::Switch {
             break;
         }
@@ -303,9 +356,7 @@ pub fn simulate_planned(
     if view > 1 {
         return Err(Error::BadChoice("view is 0 or 1".into()));
     }
-    if root.ended() {
-        return Err(Error::BadState("the battle is over".into()));
-    }
+    check_root(root, opts.mode)?;
     for c in cells {
         if c.row as usize >= rows.len() || c.col as usize >= cols.len() {
             let (m, n) = (rows.len(), cols.len());

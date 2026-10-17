@@ -949,3 +949,39 @@ fn a_freeze_is_counted_in_turns() {
     assert_eq!(own.mon_feats(j)[53], 1.0 / 3.0);
     assert_eq!(own.mon_feats(j)[52], 0.0, "not asleep");
 }
+
+#[test]
+fn a_state_without_its_battle_keeps_the_speed_beliefs_it_carries() {
+    // D72: belief's probe takes the battle out of a state and asks which Speed points each
+    // Pokémon can still have; it must be told what the order of moves has shown, not the sheets.
+    let mut rng = Rng::from_words([7, 2, 7, 2]);
+    let (mut checked, mut narrower) = (0, 0);
+    for seed in 0..80u16 {
+        if checked >= 300 {
+            break;
+        }
+        let mut g = Game::new(teams(seed), true).unwrap();
+        play(&mut g, &mut rng, |g| {
+            if g.battle().is_none() || checked >= 300 {
+                return;
+            }
+            let mut st = g.to_state();
+            st.battle = None;
+            let probe = Game::from_state(&st).unwrap();
+            for side in 0..2 {
+                for j in 0..ROSTER {
+                    let set = &g.rosters()[side][j];
+                    let points = |x: &Game| {
+                        let belief = x.speeds().belief(side, j);
+                        (0..=32u8).filter(|&p| belief.has(set.nature, p, set.item)).collect::<Vec<_>>()
+                    };
+                    assert_eq!(points(&probe), points(g), "seed {seed}, side {side}, entry {j}");
+                    narrower += (points(g).len() < 33) as usize;
+                }
+            }
+            checked += 1;
+        });
+    }
+    eprintln!("battle-less probes: {checked} decisions, {narrower} beliefs narrower than the sheets");
+    assert!(checked >= 200 && narrower > 0, "{checked} {narrower}");
+}

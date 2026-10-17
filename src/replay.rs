@@ -1196,6 +1196,9 @@ pub struct FollowTally {
     /// By count (`obs` layout obs-2): how many compared observations had it above 0 in the
     /// game's, so that a count no recording ever reached shows as unchecked.
     pub counted: std::collections::BTreeMap<String, usize>,
+    /// Protocol lines of a kind the followers do not know, by kind, both sides' (D84): what
+    /// they read nothing from without having been told to.
+    pub unknown: std::collections::BTreeMap<String, usize>,
 }
 
 /// Whether a feature is one of the counts of `obs-2`: the timed and counted volatiles and the
@@ -1428,7 +1431,12 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
     use crate::follow::Follower;
     use crate::obs::{OBS_F, OBS_I};
     let mut differed = false;
+    let mut unknown: [std::collections::BTreeMap<String, usize>; 2] = Default::default();
     let mut compare = |game: &Game, followers: &[Follower; 2], step: usize| -> Result<(), String> {
+        // (Each follower's count so far: what it has at the last decision is the battle's.)
+        for side in 0..2 {
+            unknown[side].clone_from(followers[side].unknown());
+        }
         let (mut f, mut i, mut m) = (
             [vec![0f32; OBS_F], vec![0f32; OBS_F]],
             [vec![0i16; OBS_I], vec![0i16; OBS_I]],
@@ -1489,7 +1497,11 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
         }
         Ok(())
     };
-    walk_follow(c, &mut compare)
+    let outcome = walk_follow(c, &mut compare);
+    for (kind, n) in unknown.into_iter().flatten() {
+        *tally.unknown.entry(kind).or_insert(0) += n;
+    }
+    outcome
 }
 
 /// What [`check_export`] found over recorded battles.

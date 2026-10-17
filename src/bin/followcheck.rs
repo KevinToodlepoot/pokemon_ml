@@ -152,6 +152,9 @@ fn main() {
     let counted: Vec<String> = tally.counted.iter().map(|(name, n)| format!("{name} {n}")).collect();
     let counted = if counted.is_empty() { "none".into() } else { counted.join(", ") };
     println!("counts above 0 in the game's observations: {counted}");
+    // Lines of a kind the followers do not know (D84): reported, so that nothing is read past unseen.
+    let unknown: Vec<String> = tally.unknown.iter().map(|(kind, n)| format!("{kind:?} {n}")).collect();
+    println!("unknown lines: {}", if unknown.is_empty() { "none".into() } else { unknown.join(", ") });
     if list {
         for first in &tally.first_wrong {
             println!("first: {first}");
@@ -163,7 +166,8 @@ fn main() {
             "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
                 "failed": failed.len(), "observations": tally.observations,
                 "differences": tally.wrong, "actionable_differences": tally.wrong_choices,
-                "passed_over": tally.hidden_disables, "counted": tally.counted},
+                "passed_over": tally.hidden_disables, "counted": tally.counted,
+                "unknown_lines": tally.unknown},
         });
         std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
             .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));

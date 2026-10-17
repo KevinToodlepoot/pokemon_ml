@@ -150,3 +150,35 @@ fn illegal_choices_are_rejected_without_changing_state() {
     assert_eq!(b.rng, before);
     assert_eq!(b.turn, 1);
 }
+
+#[test]
+fn difftest_strict_fails_on_an_unsupported_battle() {
+    // D84: a gate must not pass a battle it skipped. One recorded battle, with Commander (listed,
+    // not modelled) given to a Pokémon of each team, is skipped as unsupported: reported, and with
+    // `--strict` a failure.
+    let mut case: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/showdown_cases.jsonl").lines().next().unwrap()).unwrap();
+    case["teams"][0][0]["ability"] = "commander".into();
+    if case["rosters"].is_array() {
+        let j = case["picks"][0][0].as_u64().unwrap() as usize;
+        case["rosters"][0][j]["ability"] = "commander".into();
+    }
+    let dir = std::env::temp_dir().join(format!("difftest-strict-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("unsupported.jsonl");
+    std::fs::write(&path, format!("{case}\n")).unwrap();
+    let run = |strict: bool| {
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_difftest"));
+        cmd.arg(&path);
+        if strict {
+            cmd.arg("--strict");
+        }
+        cmd.output().unwrap()
+    };
+    let (lenient, strict) = (run(false), run(true));
+    let said = String::from_utf8_lossy(&lenient.stdout).to_string();
+    assert!(said.contains("1 skipped as unsupported"), "{said}");
+    assert_eq!(lenient.status.code(), Some(0), "without --strict a skip is reported");
+    assert_eq!(strict.status.code(), Some(1), "with --strict it fails: {}", String::from_utf8_lossy(&strict.stdout));
+    std::fs::remove_dir_all(&dir).ok();
+}

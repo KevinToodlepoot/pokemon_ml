@@ -74,7 +74,7 @@ fn hand(leaves: &Leaves) -> Vec<f32> {
     (0..leaves.n).map(|k| hand_value(leaves.summary_of(k), 1.0, 10.0)).collect()
 }
 
-const NO_OBS: SimOpts = SimOpts { observe: false, keep_states: false, follow: Follow::EndOfTurn };
+const NO_OBS: SimOpts = SimOpts { observe: false, keep_states: false, follow: Follow::EndOfTurn, mode: Mode::Move };
 
 #[test]
 fn a_cell_is_the_same_on_one_and_eight_threads_and_under_its_seed() {
@@ -175,8 +175,8 @@ fn a_cell_plays_a_switch_in_the_middle_of_the_turn_out_and_stops_at_the_end() {
     assert!(pivots.len() >= 4, "the tables know the pivot moves");
     let mut rng = Rng::from_words([9, 9, 9, 9]);
     let (mut found, mut tried, mut planned_cells) = (0, 0, 0);
-    let keep = SimOpts { observe: false, keep_states: true, follow: Follow::None };
-    let play_out = SimOpts { observe: false, keep_states: true, follow: Follow::EndOfTurn };
+    let keep = SimOpts { observe: false, keep_states: true, follow: Follow::None, mode: Mode::Move };
+    let play_out = SimOpts { observe: false, keep_states: true, follow: Follow::EndOfTurn, mode: Mode::Move };
     'games: for seed in 300..900u16 {
         let Some(g) = root(seed, 1 + seed % 5, &mut rng) else { continue };
         let b = g.battle().unwrap();
@@ -520,4 +520,211 @@ fn a_cell_costs_under_25_microseconds_on_one_thread() {
     eprintln!("cell: {us:.2} µs on one thread over {cells_done} cells (turn 4, a whole turn, observed)");
     assert!(us <= 25.0, "{us:.1} µs per cell");
     assert_eq!(SUMMARY, 8);
+}
+
+/// Drives one search to its end with the hand value.
+fn finish(s: Search) -> Report {
+    let mut s = [s];
+    run(&mut s, &mut hand, &NO_OBS, &pool(8)).unwrap();
+    s[0].report()
+}
+
+#[test]
+fn the_window_slides_over_every_action() {
+    // D69: a window of k candidates looks at k actions not looked at before at every oracle step,
+    // so it reaches the end of a list of n within ceil((n - 1) / k) windows, and a search that is
+    // let run converges to the equilibrium of the whole lists, as `All` does.
+    let mut rng = Rng::from_words([20, 26, 10, 17]);
+    let games = roots(24, &[2, 3, 4, 5, 6], 5000, &mut rng);
+    let (mut checked, mut grew) = (0, 0);
+    for k in [2usize, 8] {
+        for (n, g) in games.iter().enumerate() {
+            let (rows, cols) = (some(g, 0, 20, &mut rng), some(g, 1, 20, &mut rng));
+            if rows.len() < 3 || cols.len() < 3 {
+                continue;
+            }
+            let seed = 700 + n as u64;
+            let window = |max_steps: usize| Budget { candidates: Candidates::Next(k), max_steps, ..Budget::default() };
+            let start = |budget| Search::new(g.clone(), 0, rows.clone(), cols.clone(), budget, seed).unwrap();
+            // Every action is looked at (or in the matrix) once enough windows have gone by: a
+            // search of `max_steps` s scans s windows (none at 0: the matrix it starts with, solved).
+            let longest = rows.len().max(cols.len());
+            let windows = (longest - 1).div_ceil(k);
+            let r = finish(start(window(windows)));
+            for (side, (len, in_)) in [(rows.len(), &r.rows_in), (cols.len(), &r.cols_in)].into_iter().enumerate() {
+                let outside = (0..len).filter(|i| !in_.contains(i)).count();
+                assert!(r.scanned[side] >= outside, "k {k}: side {side}: {} of {outside} looked at", r.scanned[side]);
+            }
+            // And what has been looked at grows with every step until nothing is left.
+            let mut before = 0;
+            for steps in 1..=windows {
+                let r = finish(start(window(steps)));
+                let total = r.scanned[0] + r.scanned[1];
+                let all = rows.len() + cols.len() - r.rows_in.len().min(rows.len()) - r.cols_in.len().min(cols.len());
+                if r.status != Some(Status::Capped(Cap::Steps)) {
+                    break;
+                }
+                assert!(total > before || before >= all, "k {k}, {steps} steps: {total} looked at, {before} before");
+                before = total;
+                grew += 1;
+            }
+            // Let run, it converges over the whole lists, to the full matrix's equilibrium.
+            let (f, _) = full_and_oracle(g, &rows, &cols, 16, seed);
+            let o = finish(start(window(usize::MAX)));
+            assert_eq!(o.status, Some(Status::Converged { complete: true }), "k {k}");
+            check_against_full(&f, &o, rows.len(), cols.len());
+            checked += 1;
+        }
+    }
+    eprintln!("windows: {checked} searches converged to the full matrix's value; {grew} steps checked to grow");
+    assert!(checked >= 30 && grew >= 60, "{checked} {grew}");
+}
+
+#[test]
+fn a_value_outside_minus_one_to_one_is_refused_and_a_replaced_one_is_not_a_new_leaf() {
+    let mut rng = Rng::from_words([5, 6, 7, 8]);
+    let g = roots(1, &[3], 3100, &mut rng).remove(0);
+    let (rows, cols) = (g.legal(0), g.legal(1));
+    let mut s = Search::new(g.clone(), 0, rows, cols, Budget::default(), 1).unwrap();
+    assert_eq!(s.advance(), Status::NeedCells);
+    let w = s.wanted();
+    for bad in [1.5f32, -1.5, f32::NAN, f32::INFINITY] {
+        assert!(s.supply(&w[..1], &[bad]).is_err(), "{bad} is refused");
+    }
+    s.supply(&w, &vec![1.0; w.len()]).unwrap();
+    assert_eq!(s.report().leaves, w.len());
+    s.supply(&w[..3], &[-1.0, 0.5, 0.0]).unwrap();
+    assert_eq!(s.report().leaves, w.len(), "values given again replace the old ones, as no new leaves");
+}
+
+#[test]
+fn a_solve_above_its_tolerance_stops_the_oracle() {
+    // D84: no candidate is compared against a solution the solver cannot vouch for.
+    let mut rng = Rng::from_words([7, 7, 7, 7]);
+    let g = roots(1, &[3], 3200, &mut rng).remove(0);
+    let (rows, cols) = (g.legal(0), g.legal(1));
+    let starved = Budget { initial: 4, solver: SolveOpts { max_iter: 1, tol: 1e-9 }, ..Budget::default() };
+    let r = finish(Search::new(g.clone(), 0, rows.clone(), cols.clone(), starved, 2).unwrap());
+    assert_eq!((r.status, r.steps, r.scanned), (Some(Status::Capped(Cap::Solver)), 0, [0, 0]));
+    assert!(r.gap > 1e-9 && r.iters == 1);
+    assert_eq!(SolveOpts::default().max_iter, 20_000);
+}
+
+/// A game at a request for replacements at the end of a turn, from random play.
+fn a_replacement_request(seed: u16, rng: &mut Rng) -> Option<Game> {
+    let mut g = Game::new(teams(seed), true).unwrap();
+    while !g.ended() {
+        if g.phase() == Phase::Switch && g.turn_over() {
+            return Some(g);
+        }
+        let actions = [g.baseline(0, Baseline::Random, rng), g.baseline(1, Baseline::Random, rng)];
+        g.act(actions, [rng.below(65536) as u16, 2, 3, 4]).unwrap();
+    }
+    None
+}
+
+#[test]
+fn replacement_and_preview_roots_are_searched_in_their_own_modes() {
+    // D82: the default refuses them; in their mode a cell is one step under one set of dice.
+    let mut rng = Rng::from_words([8, 2, 8, 2]);
+    let one = SimOpts { mode: Mode::Replacement, ..NO_OBS };
+    let (mut roots_seen, mut leaves_seen) = (0, 0);
+    for seed in 6000..6200u16 {
+        let Some(g) = a_replacement_request(seed, &mut rng) else { continue };
+        let (rows, cols) = (g.legal(0), g.legal(1));
+        let refused = Search::new(g.clone(), 0, rows.clone(), cols.clone(), Budget::default(), 1);
+        assert!(refused.is_err(), "a request for replacements is not a move request");
+        let sixteen = Budget { mode: Mode::Replacement, ..Budget::default() };
+        assert!(Search::new(g.clone(), 0, rows.clone(), cols.clone(), sixteen, 1).is_err(), "one set of dice");
+        let cells = all_cells(rows.len(), cols.len(), 1);
+        assert!(simulate(&g, 0, &rows, &cols, &cells, 1, &NO_OBS, &pool(8)).is_err(), "nor as cells of a turn");
+        let initial = rows.len().max(cols.len());
+        let budget = Budget { mode: Mode::Replacement, seeds: 1, initial, max_steps: 0, ..Budget::default() };
+        let mut s = Search::new(g.clone(), 0, rows.clone(), cols.clone(), budget, 1).unwrap();
+        assert!(s.deepen(0, 0, 1).is_err(), "no second set of dice");
+        assert_eq!(s.advance(), Status::NeedCells);
+        let w = s.wanted();
+        assert!(w.iter().all(|c| c.seed == 0) && w.len() == rows.len() * cols.len());
+        let kept = SimOpts { keep_states: true, ..one };
+        let leaves = s.simulate(&w, &kept, &pool(8)).unwrap();
+        for k in 0..leaves.n {
+            // The replacements are in: the next request (a move request, unless a hazard KO'd one).
+            let leaf = &leaves.states[k];
+            assert!(leaf.ended() || leaf.phase() == Phase::Move || leaf.phase() == Phase::Switch && leaf.turn_over());
+            let before = g.battle().unwrap();
+            assert!(leaf.ended() || leaf.battle().unwrap().turn >= before.turn);
+            leaves_seen += 1;
+        }
+        s.supply(&w, &hand(&leaves)).unwrap();
+        assert!(s.advance().is_done());
+        assert_eq!(s.report().mode, Mode::Replacement);
+        // The same cell under the same seed is the same leaf; the dice beyond it are not used.
+        let again = simulate(&g, 0, &rows, &cols, &w, 1, &one, &pool(8)).unwrap();
+        assert_eq!(again.summary, leaves.summary);
+        roots_seen += 1;
+        if roots_seen >= 10 {
+            break;
+        }
+    }
+    assert!(roots_seen >= 5, "{roots_seen} requests for replacements found");
+    // Team Preview: refused by default; in its mode each pair of picks starts the battle.
+    let g = Game::new(teams(77), true).unwrap();
+    let (rows, cols) = (some(&g, 0, 6, &mut rng), some(&g, 1, 6, &mut rng));
+    assert!(Search::new(g.clone(), 0, rows.clone(), cols.clone(), Budget::default(), 1).is_err());
+    let budget = Budget { mode: Mode::Preview, seeds: 1, initial: 6, max_steps: 0, ..Budget::default() };
+    let mut s = Search::new(g.clone(), 0, rows.clone(), cols.clone(), budget, 3).unwrap();
+    assert_eq!(s.advance(), Status::NeedCells);
+    let w = s.wanted();
+    assert_eq!(w.len(), rows.len() * cols.len());
+    let kept = SimOpts { keep_states: true, mode: Mode::Preview, ..NO_OBS };
+    let leaves = s.simulate(&w, &kept, &pool(8)).unwrap();
+    for leaf in &leaves.states {
+        let b = leaf.battle().unwrap();
+        assert!(b.turn == 1 && leaf.phase() == Phase::Move, "the leads are in, at the first move request");
+    }
+    s.supply(&w, &hand(&leaves)).unwrap();
+    assert!(s.advance().is_done());
+    // A move request is not searched as a replacement or as Team Preview.
+    let g = roots(1, &[2], 3300, &mut rng).remove(0);
+    let (rows, cols) = (g.legal(0), g.legal(1));
+    for mode in [Mode::Replacement, Mode::Preview] {
+        let budget = Budget { mode, seeds: 1, ..Budget::default() };
+        assert!(Search::new(g.clone(), 0, rows.clone(), cols.clone(), budget, 1).is_err(), "{mode:?}");
+    }
+    eprintln!("modes: {roots_seen} requests for replacements, {leaves_seen} one-step leaves");
+}
+
+#[test]
+fn a_switch_in_the_middle_of_a_turn_is_not_a_root() {
+    let pivots: Vec<u16> =
+        ["uturn", "voltswitch", "flipturn", "partingshot"].iter().filter_map(|m| move_id(m)).collect();
+    let mut rng = Rng::from_words([4, 4, 4, 4]);
+    let keep = SimOpts { observe: false, keep_states: true, follow: Follow::None, mode: Mode::Move };
+    for seed in 300..900u16 {
+        let Some(g) = root(seed, 1 + seed % 5, &mut rng) else { continue };
+        let b = g.battle().unwrap();
+        for side in 0..2 {
+            for pos in 0..2 {
+                let m = b.mon(b.active(side, pos));
+                let Some(slot) = m.moves.iter().position(|ms| pivots.contains(&ms.id)) else { continue };
+                let legal = g.legal(side);
+                let at_a_foe = |a: &&[usize; 2]| a[pos] / 10 == slot && (1..=2).contains(&(a[pos] % 10 / 2));
+                let Some(&mine) = legal.iter().find(at_a_foe) else { continue };
+                let theirs = some(&g, 1 - side, 4, &mut rng);
+                let cells = all_cells(1, theirs.len(), 2);
+                let stop = simulate(&g, side, &[mine], &theirs, &cells, 1, &keep, &pool(8)).unwrap();
+                let Some(mid) = stop.states.iter().find(|l| l.phase() == Phase::Switch && !l.turn_over()) else {
+                    continue;
+                };
+                for mode in [Mode::Move, Mode::Replacement] {
+                    let (rows, cols) = (mid.legal(0), mid.legal(1));
+                    let budget = Budget { mode, seeds: if mode == Mode::Move { 16 } else { 1 }, ..Budget::default() };
+                    let refused = Search::new(mid.clone(), 0, rows, cols, budget, 1);
+                    assert!(refused.is_err(), "{mode:?}: a switch in the middle of a turn has moves still to run");
+                }
+                return;
+            }
+        }
+    }
+    panic!("random teams should pivot now and then");
 }

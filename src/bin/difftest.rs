@@ -1,7 +1,10 @@
 //! Replays battles recorded from Pokémon Showdown and checks that this engine
 //! reaches the same state, RNG seed and legal choices after every decision.
 //!
-//!     difftest cases.jsonl [--max-failures N] [--quiet] [--rebuild | --by-hand] [--shown [--closed-sheets]]
+//!     difftest cases.jsonl [--max-failures N] [--quiet] [--rebuild | --by-hand] [--shown [--closed-sheets]] [--strict]
+//!
+//! `--strict` fails on a battle skipped as unsupported (a part the engine
+//! does not model), as a gate must (D84): otherwise it is reported and passed over.
 //!
 //! `--shown` checks something else: that what the engine says each side has
 //! been shown (`Battle::shown`) is, at every decision, what a reader of
@@ -28,6 +31,7 @@ fn main() {
     let mut mode = Rebuild::No;
     let mut shown = false;
     let mut closed = false;
+    let mut strict = false;
     let mut tally = ShownTally::default();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -41,6 +45,7 @@ fn main() {
             "--by-hand" => mode = Rebuild::ByHand,
             "--shown" => shown = true,
             "--closed-sheets" => closed = true,
+            "--strict" => strict = true,
             _ => path = Some(a),
         }
     }
@@ -122,7 +127,10 @@ fn main() {
         for (file, line, what, uses, news) in vgc_engine::trace::shown_sites() {
             println!("site {file}:{line} {what} {uses} {news}");
         }
-        if !failed.is_empty() || !tally.mismatches.is_empty() || !tally.untrue.is_empty() {
+        if !failed.is_empty() || !tally.mismatches.is_empty() || !tally.untrue.is_empty() || strict && unsupported > 0 {
+            if strict && unsupported > 0 {
+                println!("--strict: {unsupported} battles skipped as unsupported");
+            }
             std::process::exit(1);
         }
         return;
@@ -133,6 +141,10 @@ fn main() {
     );
     if !failed.is_empty() {
         println!("diverging case ids: {:?}", &failed[..failed.len().min(40)]);
+        std::process::exit(1);
+    }
+    if strict && unsupported > 0 {
+        println!("--strict: {unsupported} battles skipped as unsupported");
         std::process::exit(1);
     }
 }

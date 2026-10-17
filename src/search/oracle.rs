@@ -12,11 +12,17 @@
 //! 1. **Fill**: every cell of the matrix needs its `seeds` sets of dice.
 //! 2. **Solve**: the matrix of mean cell values is solved ([`solve`]).
 //! 3. **Scan**: for each side, the candidate actions outside the matrix
-//!    (every one, or the next few in its list) are valued against the other
-//!    side's mix; the best candidate is added if it beats the current value
-//!    by more than `eps`. If neither side can improve, the search has
+//!    (every one, or a window of the next few in its list not yet looked
+//!    at) are valued against the other side's mix; the best candidate is
+//!    added if it beats the current value by more than `eps`. If neither
+//!    side can improve, a window slides on to the next actions not yet
+//!    looked at (D69); once every action of a side has been looked at, its
+//!    scans take every action outside the matrix, as with `All`. When no
+//!    candidate improves and nothing is left unlooked at, the search has
 //!    converged: the mix is an equilibrium of the whole game over the lists,
-//!    to within `eps` and the solver's gap. Otherwise back to 1.
+//!    to within `eps` and the solver's gap. Otherwise back to 1. No scan runs
+//!    on a solve whose gap is above the solver's `tol` (D84): the search stops
+//!    there, capped by the solver.
 //!
 //! Cell values are kept per set of dice, so a value may be replaced (a leaf
 //! searched further) and a cell may be given more dice ([`Search::deepen`]).
@@ -31,7 +37,7 @@ use crate::battle::Error;
 use crate::env::{Baseline, Game};
 use crate::obs::Phase;
 use crate::rng::Rng;
-use crate::search::cell::{CellId, Leaves, NO_PLANS, Plan, SimOpts, simulate_planned};
+use crate::search::cell::{CellId, Leaves, Mode, NO_PLANS, Plan, SimOpts, check_root, simulate_planned};
 use crate::search::solve::{SolveOpts, Solution, solve};
 
 /// Which actions outside the matrix an oracle step considers.
@@ -39,7 +45,8 @@ use crate::search::solve::{SolveOpts, Solution, solve};
 pub enum Candidates {
     /// Every action in the list.
     All,
-    /// The next so many in the list, in its order.
+    /// The next so many in the list, in its order, that have not been looked at yet; every
+    /// action outside the matrix once all have been.
     Next(usize),
 }
 
@@ -56,6 +63,8 @@ pub struct Budget {
     /// A candidate is added only if it beats the current value by more than this.
     pub eps: f64,
     pub solver: SolveOpts,
+    /// What the root is ([`Mode`]): a move request unless asked otherwise.
+    pub mode: Mode,
 }
 
 impl Default for Budget {
@@ -68,6 +77,7 @@ impl Default for Budget {
             time_cap: None,
             eps: 1e-3,
             solver: SolveOpts::default(),
+            mode: Mode::Move,
         }
     }
 }
@@ -77,6 +87,9 @@ impl Default for Budget {
 pub enum Cap {
     Steps,
     Time,
+    /// The solver did not bring its gap under `tol` within `max_iter` rounds, and no candidate
+    /// is compared against a solution it cannot vouch for (D84).
+    Solver,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -84,7 +97,8 @@ pub enum Status {
     /// Values are needed for the cells [`Search::wanted`] names.
     NeedCells,
     /// Neither side can improve. `complete`: every action in both lists was
-    /// considered (always, with [`Candidates::All`]).
+    /// considered. Always so since D69 (a window slides on until every action has
+    /// been looked at); `false` is kept for readers of older reports.
     Converged { complete: bool },
     Capped(Cap),
 }
@@ -131,6 +145,11 @@ pub struct Report {
     pub status: Option<Status>,
     /// How many distinct actions outside the matrix each side's scans considered.
     pub scanned: [usize; 2],
+    /// How many actions each side's list has.
+    pub lists: [usize; 2],
+    /// Rounds the last solve took.
+    pub iters: usize,
+    pub mode: Mode,
 }
 
 /// Below this, an action is not in a mix's support.
@@ -150,6 +169,9 @@ struct Scan {
     cand_cols: Vec<usize>,
     supp_rows: Vec<usize>,
     supp_cols: Vec<usize>,
+    /// The candidates are every action outside the matrix, on both sides: a scan that finds
+    /// nothing better is then a proof of convergence.
+    full: bool,
 }
 
 pub struct Search {
@@ -187,7 +209,8 @@ fn distinct(list: &[[usize; 2]], plans: &[Plan]) -> bool {
 impl Search {
     /// A search from `root` for `view`, over `rows` (the viewer's joint
     /// actions, likeliest first) and `cols` (the other side's). Refuses a
-    /// finished battle, an empty or repetitive list, and an action the root does not allow.
+    /// finished battle, a root the budget's [`Mode`] does not search, an empty
+    /// or repetitive list, and an action the root does not allow.
     pub fn new(
         root: Game,
         view: usize,
@@ -217,8 +240,13 @@ impl Search {
         if view > 1 {
             return Err(Error::BadChoice("view is 0 or 1".into()));
         }
-        if root.ended() {
-            return Err(Error::BadState("the battle is over".into()));
+        check_root(&root, budget.mode)?;
+        if budget.mode != Mode::Move && budget.seeds != 1 {
+            return Err(Error::BadChoice(format!(
+                "a search in mode {:?} plays one step from a choice: one set of dice, not {}",
+                budget.mode.name(),
+                budget.seeds
+            )));
         }
         if rows.is_empty() || cols.is_empty() {
             return Err(Error::BadChoice("each side needs at least one joint action".into()));
@@ -338,13 +366,15 @@ impl Search {
         out
     }
 
-    /// Plays `cells` from the root (see [`simulate_planned`]).
+    /// Plays `cells` from the root (see [`simulate_planned`]), in the search's [`Mode`].
     pub fn simulate(&self, cells: &[CellId], opts: &SimOpts, pool: &ThreadPool) -> Result<Leaves, Error> {
         let (rows, cols, rp, cp) = (&self.rows, &self.cols, &self.row_plans, &self.col_plans);
-        simulate_planned(&self.root, self.view, rows, cols, rp, cp, cells, self.seed, opts, pool)
+        let opts = SimOpts { mode: self.budget.mode, ..*opts };
+        simulate_planned(&self.root, self.view, rows, cols, rp, cp, cells, self.seed, &opts, pool)
     }
 
-    /// Takes in the value of each cell's leaf (in `[-1, 1]` by convention), one per cell, replacing any it had.
+    /// Takes in the value of each cell's leaf, in `[-1, 1]` (anything else is refused), one per
+    /// cell, replacing any it had; a replaced value is not a new leaf.
     pub fn supply(&mut self, cells: &[CellId], values: &[f32]) -> Result<(), Error> {
         if cells.len() != values.len() {
             return Err(Error::BadChoice(format!("{} cells but {} values", cells.len(), values.len())));
@@ -354,6 +384,9 @@ impl Search {
             if !v.is_finite() {
                 return Err(Error::BadChoice(format!("cell {c:?}: the value {v} is not a number")));
             }
+            if !(-1.0..=1.0).contains(&v) {
+                return Err(Error::BadChoice(format!("cell {c:?}: the value {v} is outside [-1, 1]")));
+            }
             let (r, k) = (c.row as usize, c.seed as usize);
             if r >= m || c.col as usize >= n {
                 return Err(Error::BadChoice(format!("cell {c:?} is outside the {m}×{n} lists")));
@@ -362,17 +395,22 @@ impl Search {
             if slots.len() <= k {
                 slots.resize(k + 1, None);
             }
-            slots[k] = Some(v);
-            self.leaves += 1;
+            if slots[k].replace(v).is_none() {
+                self.leaves += 1;
+            }
         }
         Ok(())
     }
 
     /// Asks for `extra` more sets of dice for a cell. The search solves again before it goes on.
+    /// (A search of one step, [`Mode::Replacement`] or [`Mode::Preview`], has one set.)
     pub fn deepen(&mut self, row: usize, col: usize, extra: usize) -> Result<(), Error> {
         let (m, n) = (self.rows.len(), self.cols.len());
         if row >= m || col >= n {
             return Err(Error::BadChoice(format!("cell ({row}, {col}) is outside the {m}×{n} lists")));
+        }
+        if extra > 0 && self.budget.mode != Mode::Move {
+            return Err(Error::BadChoice(format!("a search in mode {:?} has one set of dice", self.budget.mode.name())));
         }
         let slots = &mut self.cache[row * n + col];
         let have = slots.len().max(self.budget.seeds);
@@ -419,12 +457,13 @@ impl Search {
                 Phase_::Solve => {
                     let a = self.matrix();
                     let s = solve(&a, self.rows_in.len(), self.cols_in.len(), self.budget.solver);
+                    let unsure = s.gap > self.budget.solver.tol;
                     self.solution = Some(s);
-                    if self.budget.time_cap.is_some_and(|cap| self.started.elapsed() >= cap) {
-                        return self.finish(Status::Capped(Cap::Time));
+                    if let Some(capped) = self.capped() {
+                        return self.finish(capped);
                     }
-                    if self.steps >= self.budget.max_steps {
-                        return self.finish(Status::Capped(Cap::Steps));
+                    if unsure {
+                        return self.finish(Status::Capped(Cap::Solver));
                     }
                     self.plan_scan();
                     self.phase = Phase_::Scan;
@@ -433,20 +472,48 @@ impl Search {
                     if !self.wanted().is_empty() {
                         return Status::NeedCells;
                     }
-                    let added = self.oracle_step();
-                    if !added {
-                        let complete = self.scan.cand_rows.len() + self.rows_in.len() == self.rows.len()
-                            && self.scan.cand_cols.len() + self.cols_in.len() == self.cols.len();
-                        return self.finish(Status::Converged { complete });
+                    if self.oracle_step() {
+                        self.steps += 1;
+                        self.phase = Phase_::Fill;
+                        continue;
                     }
-                    self.steps += 1;
-                    self.phase = Phase_::Fill;
+                    // Nothing in the window improved on the value: the window slides on to the
+                    // actions not yet looked at, against the same solution (D69); once all have
+                    // been, one scan of every action outside the matrix settles it.
+                    if self.unscanned() || !self.scan.full {
+                        self.steps += 1;
+                        if let Some(capped) = self.capped() {
+                            return self.finish(capped);
+                        }
+                        self.plan_scan();
+                        continue;
+                    }
+                    // (Every action is in the matrix or has been looked at: `complete`.)
+                    return self.finish(Status::Converged { complete: !self.unscanned() });
                 }
             }
         }
     }
 
-    /// Which candidates the scan considers and which support they are valued against.
+    /// Whether the time cap or the step cap stops the search here.
+    fn capped(&self) -> Option<Status> {
+        if self.budget.time_cap.is_some_and(|cap| self.started.elapsed() >= cap) {
+            return Some(Status::Capped(Cap::Time));
+        }
+        (self.steps >= self.budget.max_steps).then_some(Status::Capped(Cap::Steps))
+    }
+
+    /// Whether either side has an action outside the matrix that no scan has looked at.
+    fn unscanned(&self) -> bool {
+        let left = |side: usize, in_: &[usize]| {
+            (0..self.scanned[side].len()).any(|k| !self.scanned[side][k] && !in_.contains(&k))
+        };
+        left(0, &self.rows_in) || left(1, &self.cols_in)
+    }
+
+    /// Which candidates the scan considers and which support they are valued against. A
+    /// window takes the next actions not yet looked at, and every action outside the matrix
+    /// once there are none left (D69).
     fn plan_scan(&mut self) {
         let s = self.solution.as_ref().expect("solved");
         let support = |mix: &[f64], in_: &[usize]| -> Vec<usize> {
@@ -454,22 +521,26 @@ impl Search {
         };
         let supp_rows = support(&s.x, &self.rows_in);
         let supp_cols = support(&s.y, &self.cols_in);
-        let outside = |len: usize, in_: &[usize]| -> Vec<usize> {
-            let rest = (0..len).filter(|k| !in_.contains(k));
+        // A side's candidates, and whether they are every action outside the matrix.
+        let outside = |side: usize, in_: &[usize]| -> (Vec<usize>, bool) {
+            let rest = || (0..self.scanned[side].len()).filter(move |k| !in_.contains(k));
             match self.budget.candidates {
-                Candidates::All => rest.collect(),
-                Candidates::Next(m) => rest.take(m).collect(),
+                Candidates::All => (rest().collect(), true),
+                Candidates::Next(m) => {
+                    let fresh: Vec<usize> = rest().filter(|&k| !self.scanned[side][k]).take(m).collect();
+                    if fresh.is_empty() { (rest().collect(), true) } else { (fresh, false) }
+                }
             }
         };
-        let cand_rows = outside(self.rows.len(), &self.rows_in);
-        let cand_cols = outside(self.cols.len(), &self.cols_in);
+        let (cand_rows, all_rows) = outside(0, &self.rows_in);
+        let (cand_cols, all_cols) = outside(1, &self.cols_in);
         for &r in &cand_rows {
             self.scanned[0][r] = true;
         }
         for &c in &cand_cols {
             self.scanned[1][c] = true;
         }
-        self.scan = Scan { cand_rows, cand_cols, supp_rows, supp_cols };
+        self.scan = Scan { cand_rows, cand_cols, supp_rows, supp_cols, full: all_rows && all_cols };
     }
 
     /// Adds each side's best candidate if it improves on the current value; whether any was added.
@@ -556,6 +627,9 @@ impl Search {
             elapsed: self.started.elapsed(),
             status: self.status,
             scanned: [self.scanned[0].iter().filter(|&&b| b).count(), self.scanned[1].iter().filter(|&&b| b).count()],
+            lists: [m, n],
+            iters: self.solution.as_ref().map_or(0, |s| s.iters),
+            mode: self.budget.mode,
         }
     }
 }
