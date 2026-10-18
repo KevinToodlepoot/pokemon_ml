@@ -164,9 +164,20 @@ impl Belief {
         }
     }
 
-    /// Whether this combination is still possible.
+    /// Whether this combination is still possible. `item` is the item it holds **now**: what the
+    /// order of moves showed is kept under the item at work at the time, and once an item changes
+    /// hands only the one it holds now is left (a Pokémon that has flung its Iron Ball is one
+    /// holding nothing). For the stat points alone, [`Belief::points`].
     pub fn has(&self, nature: (u8, u8), points: u8, item: u16) -> bool {
         self.bits[nature_class(nature)][class_of(item)] & (1 << points) != 0
+    }
+
+    /// The Speed stat points still possible with this nature, whatever item it holds now. (Asked
+    /// with the item it was registered with, [`Belief::has`] says nothing is, once a Choice Scarf
+    /// or an Iron Ball has changed hands.)
+    pub fn points(&self, nature: (u8, u8)) -> impl Iterator<Item = u8> {
+        let any = self.bits[nature_class(nature)].iter().fold(0, |a, &b| a | b);
+        (0..POINTS as u8).filter(move |&p| any & (1 << p) != 0)
     }
 
     /// The lowest and highest Speed `species` can have with this still possible, counting

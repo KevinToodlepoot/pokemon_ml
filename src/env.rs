@@ -327,6 +327,12 @@ impl Game {
         &self.speeds
     }
 
+    /// The Speed stat points the Pokémon `side` registered `entry`th can still have, as its
+    /// opponent can tell, with the nature it was registered with and whatever item it holds now.
+    pub fn speed_points(&self, side: usize, entry: usize) -> Vec<u8> {
+        self.speeds.belief(side, entry).points(self.rosters[side][entry].nature).collect()
+    }
+
     /// Has [`Speeds`] check itself against the truth as the game goes, and panic on a difference: for tests.
     pub fn check_speeds(&mut self) {
         self.speeds.strict = true;

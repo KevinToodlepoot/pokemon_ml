@@ -970,13 +970,10 @@ fn a_state_without_its_battle_keeps_the_speed_beliefs_it_carries() {
             let probe = Game::from_state(&st).unwrap();
             for side in 0..2 {
                 for j in 0..ROSTER {
-                    let set = &g.rosters()[side][j];
-                    let points = |x: &Game| {
-                        let belief = x.speeds().belief(side, j);
-                        (0..=32u8).filter(|&p| belief.has(set.nature, p, set.item)).collect::<Vec<_>>()
-                    };
-                    assert_eq!(points(&probe), points(g), "seed {seed}, side {side}, entry {j}");
-                    narrower += (points(g).len() < 33) as usize;
+                    let points = g.speed_points(side, j);
+                    assert_eq!(probe.speed_points(side, j), points, "seed {seed}, side {side}, entry {j}");
+                    assert!(points.contains(&g.rosters()[side][j].stat_points[5]), "the truth is left");
+                    narrower += (points.len() < 33) as usize;
                 }
             }
             checked += 1;

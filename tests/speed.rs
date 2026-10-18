@@ -278,3 +278,134 @@ fn the_truth_is_never_ruled_out_and_no_call_is_wrong() {
     assert!(tally.called * 5 > tally.matchups, "few matchups called: {tally:?}");
     assert!(tally.narrowed * 2 > tally.seen, "little narrowed: {tally:?}");
 }
+
+/// A set with two moves (Snarl first, for turns of plain comparisons), a Speed spread and an item.
+fn mover(species: &str, nature: &str, speed_points: u8, item: &str, second: &str) -> PokemonSet {
+    PokemonSet::from_names(species, &["Snarl", second], nature, [0, 0, 0, 0, 0, speed_points])
+        .unwrap()
+        .item(item)
+        .unwrap()
+}
+
+/// A side's six: the two leads given, four bystanders with items of their own.
+fn six(leads: [PokemonSet; 2]) -> Vec<PokemonSet> {
+    let [a, b] = leads;
+    vec![
+        a,
+        b,
+        mover("Arcanine", "Hardy", 4, "", "Protect"),
+        mover("Kingambit", "Hardy", 8, "", "Protect"),
+        mover("Rillaboom", "Hardy", 12, "", "Protect"),
+        mover("Volcarona", "Hardy", 16, "", "Protect"),
+    ]
+}
+
+/// Snarl (move 0), which hits both of the other side's and so takes no target.
+const SNARL: usize = 0;
+
+/// One scripted game: `first` is the opening turn's actions, then `turns` turns of everyone
+/// using Snarl. At every decision, for each side's view of the other: the Speed points
+/// `speed_points` leaves contain the truth, and a state without its battle (belief's probe) gives
+/// the same. Returns whether the old query (the registered item's class) came up empty for
+/// the Pokémon in `watch` (side, entry) at some decision: the case this test is about.
+fn items_change_hands(
+    teams: [Vec<PokemonSet>; 2],
+    first: [[usize; 2]; 2],
+    turns: usize,
+    watch: &[(usize, usize)],
+) -> bool {
+    let mut game = Game::new(teams, true).unwrap();
+    game.check_speeds();
+    game.act([[0, 0], [0, 0]], [7, 7, 7, 7]).unwrap();
+    let mut old_empty = false;
+    let mut check = |game: &Game| {
+        let mut probe = game.to_state();
+        probe.battle = None;
+        let probe = Game::from_state(&probe).unwrap();
+        for side in 0..2 {
+            for entry in 0..ROSTER {
+                let set = &game.rosters()[side][entry];
+                let points = game.speed_points(side, entry);
+                let truth = set.stat_points[5];
+                assert!(points.contains(&truth), "side {side} entry {entry}: {points:?} rules out the truth");
+                assert_eq!(probe.speed_points(side, entry), points, "the probe without the battle");
+                let belief = game.speeds().belief(side, entry);
+                if watch.contains(&(side, entry)) && (0..=32).all(|p| !belief.has(set.nature, p, set.item)) {
+                    old_empty = true;
+                }
+            }
+        }
+    };
+    check(&game);
+    let mut actions = first;
+    let mut rng = Rng::from_words([3, 1, 4, 1]);
+    for _ in 0..=turns {
+        if game.ended() {
+            break;
+        }
+        // (A replacement after a faint: the first the request allows.)
+        let todo = if game.phase() == vgc_engine::obs::Phase::Switch {
+            [game.baseline(0, Baseline::Random, &mut rng), game.baseline(1, Baseline::Random, &mut rng)]
+        } else {
+            for side in 0..2 {
+                let legal = game.legal(side);
+                assert!(legal.contains(&actions[side]), "p{}: {:?} is legal: {legal:?}", side + 1, actions[side]);
+            }
+            actions
+        };
+        game.act(todo, [5, 6, 7, 8]).unwrap();
+        check(&game);
+        if game.phase() == vgc_engine::obs::Phase::Move {
+            actions = [[SNARL, SNARL], [SNARL, SNARL]];
+        }
+    }
+    // Each Pokémon watched holds something other than what it was registered with.
+    let st = serde_json::to_value(game.to_state()).unwrap();
+    for &(side, entry) in watch {
+        let set = &game.rosters()[side][entry];
+        let species = vgc_engine::data::SPECIES[set.species as usize].id;
+        let mons = st["battle"]["sides"][side]["pokemon"].as_array().unwrap();
+        let named = |m: &&serde_json::Value| m["species"].as_str().is_some_and(|s| s.to_lowercase() == species);
+        let mon = mons.iter().find(named).unwrap_or_else(|| panic!("{species} is in the battle"));
+        let now = mon["item"].as_str().map(|i| i.to_lowercase().replace([' ', '-'], "")).unwrap_or_default();
+        assert_ne!(now, vgc_engine::data::ITEMS[set.item as usize].id, "p{} {species}'s item changed hands", side + 1);
+    }
+    old_empty
+}
+
+#[test]
+fn speed_points_follow_an_item_that_changes_hands() {
+    // Move 1 (the second) at the other side's first position, and at one's own second position.
+    let (at_foe, at_ally) = (10 + 2, 10 + 2 * 4);
+
+    // 1. p1's Sneasler flings its Iron Ball: it holds nothing from then on.
+    let teams = [
+        six([
+            mover("Sneasler", "Brave", 20, "Iron Ball", "Fling"),
+            mover("Milotic", "Bold", 9, "Leftovers", "Protect"),
+        ]),
+        six([mover("Garchomp", "Jolly", 30, "Sitrus Berry", "Protect"), mover("Snorlax", "Relaxed", 2, "", "Protect")]),
+    ];
+    assert!(items_change_hands(teams, [[at_foe, SNARL], [SNARL, SNARL]], 5, &[(0, 0)]), "the flung Iron Ball");
+
+    // 2. p2's Choice Scarf Gardevoir Tricks its Scarf onto p1's Milotic (registered with Leftovers),
+    //    and takes the Leftovers.
+    let teams = [
+        six([mover("Milotic", "Bold", 9, "Leftovers", "Protect"), mover("Sylveon", "Calm", 14, "", "Protect")]),
+        six([mover("Gardevoir", "Timid", 25, "Choice Scarf", "Trick"), mover("Snorlax", "Relaxed", 2, "", "Protect")]),
+    ];
+    let tricked = items_change_hands(teams, [[SNARL, SNARL], [at_foe, SNARL]], 5, &[(0, 0), (1, 0)]);
+    assert!(tricked, "a Scarf Tricked onto p1");
+
+    // 3. p2's Choice Scarf Gardevoir Tricks its Scarf onto its own partner (registered with a
+    //    Sitrus Berry), and takes the berry.
+    let teams = [
+        six([mover("Milotic", "Bold", 9, "Leftovers", "Protect"), mover("Sylveon", "Calm", 14, "", "Protect")]),
+        six([
+            mover("Gardevoir", "Timid", 25, "Choice Scarf", "Trick"),
+            mover("Snorlax", "Relaxed", 2, "Sitrus Berry", "Protect"),
+        ]),
+    ];
+    let tricked = items_change_hands(teams, [[SNARL, SNARL], [at_ally, SNARL]], 5, &[(1, 0), (1, 1)]);
+    assert!(tricked, "a Scarf Tricked onto the partner");
+}

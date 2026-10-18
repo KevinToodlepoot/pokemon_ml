@@ -595,14 +595,14 @@ impl PyGame {
 
     /// The amounts of Speed stat points (0 to 32) the Pokémon `side`
     /// registered `entry`th can still have, by what its opponent has seen of
-    /// the order of moves, with the nature and item it was registered with.
+    /// the order of moves, with the nature it was registered with and whatever
+    /// item it holds now (a Choice Scarf or an Iron Ball may have changed hands).
     fn speed_points(&self, side: usize, entry: usize) -> PyResult<Vec<u32>> {
         let side = side_index(side)?;
-        let set = self.inner.rosters()[side]
-            .get(entry)
-            .ok_or_else(|| PyValueError::new_err("entry is a place in the registered team"))?;
-        let belief = self.inner.speeds().belief(side, entry);
-        Ok((0..=32u32).filter(|&p| belief.has(set.nature, p as u8, set.item)).collect())
+        if entry >= self.inner.rosters()[side].len() {
+            return Err(PyValueError::new_err("entry is a place in the registered team"));
+        }
+        Ok(self.inner.speed_points(side, entry).into_iter().map(u32::from).collect())
     }
 
     /// The lowest and highest Speed that Pokémon can have, as its opponent can tell, its item counted.
