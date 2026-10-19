@@ -686,6 +686,59 @@ fn a_follower_sees_what_the_simulator_sees() {
     eprintln!("counts above 0: {:?}", tally.counted);
 }
 
+/// What gate 2 and the random fuzz found the follower getting wrong at Showdown `7b02eb3` (S3b.6, the
+/// bump of vgc-bot's D91), each in the battle that showed it (Dex sets; the battle's name says which),
+/// recorded again to just past it with Showdown's state at every point: a fainted Pokémon that keeps
+/// its status, Octolock's user, a rampage's turn cap across a mid-turn switch, a rampage ended by
+/// sleep, a disguise's sleep count, No Retreat without a word, and two rampages that run out
+/// silently (D89), told to neither side for the confused holder at its replacement request.
+#[test]
+fn what_the_new_pin_and_random_play_found_the_follower_getting_wrong_is_right() {
+    use vgc_engine::replay::{ExportTally, Unsaid, UnsaidTracker, check_export};
+    let (mut tally, mut exports) = (FollowTally::default(), ExportTally::default());
+    let mut silent = Vec::new();
+    let text = include_str!("fixtures/new_pin_export_regressions.jsonl");
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state());
+        for outcome in [check_follow(&case, &mut tally), check_export(&case, &mut exports)] {
+            match outcome {
+                Outcome::Pass(_) => {}
+                Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+                Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+        let mut unsaid = UnsaidTracker::default();
+        walk_follow(&case, &mut |game, _, step| {
+            match step {
+                0 => unsaid.start(game),
+                k => unsaid.step(game, &case.steps[k - 1].after.log),
+            }
+            for viewer in 0..2 {
+                for u in unsaid.for_viewer(viewer) {
+                    if let Unsaid::RampageEnded { side, species } = u
+                        && !silent.contains(&(case.id, viewer, side, species.clone()))
+                    {
+                        silent.push((case.id, viewer, side, species));
+                    }
+                }
+            }
+            Ok(())
+        });
+    }
+    assert_eq!(text.lines().count(), 8);
+    assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+    // The Own Tempo Emboar's and the confused Annihilape's: each is followed by a replacement request
+    // (a wait for the side that does not replace), so neither side is told, its own included.
+    for (id, species) in [(801, "emboar"), (1970, "annihilape")] {
+        let mut own: Vec<bool> = silent.iter().filter(|s| s.0 == id && s.3 == species).map(|s| s.1 == s.2).collect();
+        own.sort();
+        assert_eq!(own, [false, true], "battle {id}: {silent:?}");
+    }
+}
+
 /// The counts no other recording reaches (S3b.6): Lock-On's, Syrup Bomb's and Future Sight's, in
 /// random battles over those moves with Showdown's state at every point (`gen_cases.js --n 120
 /// --seed 20261018 --moves lockon,zapcannon,syrupbomb,futuresight --log --requests --open-sheets`,

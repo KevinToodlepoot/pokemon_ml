@@ -1541,9 +1541,10 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
 /// that the parity gates can count it by name and hold everything else to the game.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unsaid {
-    /// A rampage (Outrage, Thrash, Petal Dance) that ended on its two-turn roll while its holder was
-    /// already confused: its end adds a confusion the holder takes without a word, so the other side
-    /// cannot tell it from a rampage with a turn to go. Until the turn's end.
+    /// A rampage (Outrage, Thrash, Petal Dance) that ran out without a word: its end adds a confusion
+    /// the holder takes silently (it is already confused, has Own Tempo, stands in Misty Terrain), so
+    /// the other side cannot tell it from a rampage with a turn to go, and nor can the holder's own
+    /// until a move request shows it free. Until the turn's end.
     RampageEnded { side: usize, species: String },
     /// PP a move paid to Pressure when Showdown blanked the move's target (a failed Sucker Punch:
     /// `|move|X|Sucker Punch||[still]`), with a Pressure Pokémon and another without among the
@@ -1570,9 +1571,9 @@ impl Unsaid {
 /// log; [`UnsaidTracker::for_viewer`] then lists what applies at this decision to one side's view.
 #[derive(Default)]
 pub struct UnsaidTracker {
-    /// The game's rampages and confusions at the last decision, by side and position: (team index,
-    /// rampaging, confused).
-    before: [[Option<(u8, bool, bool)>; crate::state::ACTIVE]; 2],
+    /// The game's rampages at the last decision, by side and position: (team index, the turns its
+    /// lock has left, `trueDuration`, if it has one).
+    before: [[Option<(u8, Option<i16>)>; crate::state::ACTIVE]; 2],
     /// (viewer, what it was not told).
     now: Vec<(usize, Unsaid)>,
 }
@@ -1599,8 +1600,10 @@ impl UnsaidTracker {
         // again; Pressure's PP stays.
         let upkept = log.iter().any(|l| l == "|upkeep");
         let lines: Vec<Vec<&str>> = log.iter().map(|l| l.split('|').collect()).collect();
-        self.now.retain(|(_, u)| match u {
-            Unsaid::RampageEnded { .. } => !upkept,
+        let moving = game.phase() == crate::obs::Phase::Move;
+        self.now.retain(|(viewer, u)| match u {
+            // (Its own side sees it free once a move request lists its moves.)
+            Unsaid::RampageEnded { side, .. } => !upkept && (viewer != side || !moving),
             Unsaid::EncoreTarget { side, species: sp } => !lines.iter().any(|p| {
                 p.get(1) == Some(&"move")
                     && p.get(2)
@@ -1612,29 +1615,29 @@ impl UnsaidTracker {
         for side in 0..2 {
             for pos in 0..ACTIVE {
                 let r = b.active(side, pos);
-                let (Some(r), Some((idx, rampaging, confused))) = (at(r), self.before[side][pos]) else { continue };
+                let (Some(r), Some((idx, Some(left)))) = (at(r), self.before[side][pos]) else { continue };
                 let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
-                let used_locked = lines.iter().any(|p| {
+                let used = lines.iter().position(|p| {
                     p.get(1) == Some(&"move")
                         && p.get(2).is_some_and(|w| w.starts_with(&tag))
                         && p.iter().any(|x| x.strip_prefix("[from]").is_some_and(|f| f.trim() == "lockedmove"))
                 });
+                // Its last turn: the lock's count, less the turns' ends before the move, is down to one,
+                // so the lock ends with the move and its confusion would say so (`lockedmove`'s `onEnd`).
+                let last_turn =
+                    used.is_some_and(|k| left - log[..k].iter().filter(|l| *l == "|upkeep").count() as i16 <= 1);
                 let fatigue = lines.iter().any(|p| {
                     p.get(1) == Some(&"-start")
                         && p.get(2).is_some_and(|w| w.starts_with(&tag))
                         && p.get(3) == Some(&"confusion")
                         && p.contains(&"[fatigue]")
                 });
-                let vols = b.vols(r);
-                if r.idx == idx
-                    && rampaging
-                    && confused
-                    && used_locked
-                    && !fatigue
-                    && !vols.has(VolKind::Lockedmove)
-                    && vols.has(VolKind::Confusion)
-                {
-                    self.now.push((1 - side, Unsaid::RampageEnded { side, species: species(r) }));
+                if r.idx == idx && last_turn && !fatigue && !b.vols(r).has(VolKind::Lockedmove) {
+                    let u = Unsaid::RampageEnded { side, species: species(r) };
+                    if !moving {
+                        self.now.push((side, u.clone()));
+                    }
+                    self.now.push((1 - side, u));
                 }
             }
         }
@@ -1689,10 +1692,8 @@ impl UnsaidTracker {
         }
         for side in 0..2 {
             for pos in 0..ACTIVE {
-                self.before[side][pos] = at(b.active(side, pos)).map(|r| {
-                    let vols = b.vols(r);
-                    (r.idx, vols.has(VolKind::Lockedmove), vols.has(VolKind::Confusion))
-                });
+                self.before[side][pos] =
+                    at(b.active(side, pos)).map(|r| (r.idx, b.vols(r).get(VolKind::Lockedmove).map(|c| c.st.a)));
             }
         }
     }

@@ -745,6 +745,11 @@ pub struct Follower {
     /// The turn's end has begun (`|upkeep|`) and the next `|turn|` has not come: a switch
     /// request now replaces the fainted, rather than coming in the middle of the turn.
     upkept: bool,
+    /// By side and team index (the follower's own numbering for its side, the reader's for the
+    /// other): the status a Pokémon fainted with and its toxic stage. Showdown's `checkFainted`
+    /// clears a fainted Pokémon's status only on a side with someone to send in (since
+    /// `4379269`), so one that stays where it fell keeps it. Nothing reads it; the game has it.
+    faint_status: [[Option<(Status, u8)>; MAX_TEAM]; 2],
     /// How far the effects with a hidden length have run, as the log counts them (see
     /// [`Counts`]), by side and the team index of [`Follower::game_state`].
     counts: Counts,
@@ -767,6 +772,9 @@ pub struct Follower {
     fresh: [[u8; MAX_TEAM]; 2],
     /// By side and team index: the move a rampage locks it into, while it does.
     rampage: [[u16; MAX_TEAM]; 2],
+    /// By side and team index: the turns' ends a rampage has seen since it began. It lasts two or three
+    /// turns, whenever the decisions fall (one in the middle of its first turn, a U-turn's, moves its count).
+    rampage_turns: [[u8; MAX_TEAM]; 2],
     /// By side and team index: the turns it has tried to move while frozen (Champions thaws a
     /// Pokémon after three at most, so what is left of a freeze is public).
     frozen: [[u8; MAX_TEAM]; 2],
@@ -1044,6 +1052,7 @@ impl Follower {
             rounds: Vec::new(),
             roused: None,
             upkept: false,
+            faint_status: [[None; MAX_TEAM]; 2],
             counts: Counts::default(),
             fainted_now: [false; 2],
             fainted_last: [false; 2],
@@ -1053,6 +1062,7 @@ impl Follower {
             ate: [[false; MAX_TEAM]; 2],
             fresh: [[0; MAX_TEAM]; 2],
             rampage: [[NO_MOVE; MAX_TEAM]; 2],
+            rampage_turns: [[0; MAX_TEAM]; 2],
             frozen: [[0; MAX_TEAM]; 2],
             own_hp: [None; ACTIVE],
             under_way: None,
@@ -1420,6 +1430,26 @@ impl Follower {
             self.spots[s][p].genuine_form = true;
         }
         let own_items: [u16; ACTIVE] = std::array::from_fn(|p| self.own_now(p).map_or(it::NONE, |n| n.item));
+        // A Pokémon going down: the status it falls with, before the reader writes it off (a
+        // `|faint|` with no `0 fnt` before it, as Perish Song's, still has it then).
+        let fainting =
+            kind == "faint" || (matches!(kind, "-damage" | "-heal" | "-sethp") && arg(3).starts_with("0 fnt"));
+        if fainting
+            && let Some((s, p)) = who
+            && let Some(key) = self.faint_key(s, p)
+            && let Some(rec) = self.reader.live_record(s, p)
+            && (kind != "faint" || rec.status != Status::None)
+        {
+            self.faint_status[s][key] = (rec.status != Status::None).then_some((rec.status, self.spots[s][p].tox));
+        }
+        // One that fell where it stands and is replaced there has its status cleared (`switchIn`).
+        if matches!(kind, "switch" | "drag")
+            && let Some((s, p)) = who
+            && self.reader.sides[s].active[p].as_ref().is_some_and(|l| l.gone)
+            && let Some(key) = self.faint_key(s, p)
+        {
+            self.faint_status[s][key] = None;
+        }
         self.reader.line(line)?;
         let after = held(self);
         self.track(kind, &parts, from)?;
@@ -1454,6 +1484,14 @@ impl Follower {
             }
         }
         if !moved.is_empty() {
+            // What goes with a Pokémon's status (its turns asleep, frozen) goes with it to its new number:
+            // a Pokémon passed for by a disguise beside it slept under a number of its own until then.
+            let (sleep, frozen) = (self.counts.sleep[opp], self.frozen[opp]);
+            for &(was, now, _) in &moved {
+                if was < MAX_TEAM && now < MAX_TEAM {
+                    (self.counts.sleep[opp][now], self.frozen[opp][now]) = (sleep[was], frozen[was]);
+                }
+            }
             let renumber = |r: &mut MonRef| {
                 if r.side == opp as u8
                     && let Some(&(_, now, _)) = moved.iter().find(|m| m.0 == r.idx as usize)
@@ -1563,6 +1601,37 @@ impl Follower {
     }
 
     /// What the follower knows of its own Pokémon at `pos` that settles how fast it moves.
+    /// The number [`Follower::faint_status`] files the Pokémon at a position under.
+    fn faint_key(&self, side: usize, pos: usize) -> Option<usize> {
+        let key = if side == self.side {
+            Some(self.own_at[pos])
+        } else {
+            self.reader.sides[side].active[pos].as_ref().map(|l| l.entry)
+        };
+        key.filter(|&k| k < MAX_TEAM)
+    }
+
+    /// `Battle#checkFainted`, at a turn's end and once the Pokémon replacing the fainted are in:
+    /// on a side with someone left to send in, the fainted where they fell lose their status.
+    fn check_fainted(&mut self) {
+        for side in 0..2 {
+            let s = &self.reader.sides[side];
+            let size = if s.size == 0 { 4 } else { s.size as usize };
+            let standing = (0..ACTIVE).filter(|&p| s.active[p].as_ref().is_some_and(|l| !l.gone)).count();
+            if size <= s.fainted as usize + standing {
+                continue;
+            }
+            for pos in 0..ACTIVE {
+                let fell = self.reader.sides[side].active[pos].as_ref().is_some_and(|l| {
+                    l.gone && self.reader.sides[side].team.get(l.entry).is_some_and(|e| e.rec.fainted)
+                });
+                if fell && let Some(key) = self.faint_key(side, pos) {
+                    self.faint_status[side][key] = None;
+                }
+            }
+        }
+    }
+
     fn own_now(&self, pos: usize) -> Option<OwnNow> {
         let req = self.req.as_ref()?;
         let own = self.own.get(self.own_at[pos])?;
@@ -1871,6 +1940,7 @@ impl Follower {
             }
             "turn" => {
                 self.turn = arg(2).parse().map_err(|_| "unreadable turn".to_string())?;
+                self.check_fainted();
                 self.upkept = false;
                 (self.fainted_last, self.fainted_now) = (self.fainted_now, [false; 2]);
                 for side in 0..2 {
@@ -1913,6 +1983,7 @@ impl Follower {
             "upkeep" => {
                 self.upkeep();
                 self.upkept = true;
+                self.check_fainted();
                 return Ok(());
             }
             "win" => {
@@ -2090,6 +2161,15 @@ impl Follower {
                     return Ok(());
                 };
                 let queued = queued_move(arg(3), from);
+                // Champions' No Retreat on one already trapped, or on a Ghost that cannot be: its volatile
+                // goes on without a word (no `-start`), and a second one fails.
+                if used == mv::NORETREAT && !parts.contains(&"[still]") {
+                    let ghost =
+                        self.seen_base(side, pos).contains(&Type::Ghost) || self.spots[side][pos].added == Type::Ghost;
+                    if self.spots[side][pos].has(VolKind::Trapped) || ghost {
+                        self.spot(side, pos).add(VolKind::Noretreat, Ends::Said);
+                    }
+                }
                 let stay = self.spots[side][pos].stay;
                 let mut undo = None;
                 // A Choice item holds its Pokémon to one move. It can come to choose another
@@ -3047,6 +3127,11 @@ impl Follower {
             self.req = Some(req);
             return Ok(());
         }
+        // (Replacements are asked for with the queue empty: `checkFainted` has run, and runs again
+        // for one that fell coming in.)
+        if req.asked == Asked::Switch && self.upkept {
+            self.check_fainted();
+        }
         if self.own.is_empty() {
             // The first request of the battle lists the Pokémon brought, in the order picked.
             for mon in &req.mons {
@@ -3233,6 +3318,13 @@ impl Follower {
             m.stats[0] = if mon.fainted { self.stats[own.entry][0] } else { mon.max_hp };
             (m.hp, m.status, m.fainted) = (mon.hp, mon.status, mon.fainted);
             m.faint_queued = mon.fainted;
+            // (Fallen where it stands, on a side that had nobody to send in: it keeps its status.)
+            if mon.fainted
+                && k < ACTIVE
+                && let Some((status, tox)) = self.faint_status[me][idx]
+            {
+                (m.status, m.tox_stage) = (status, if status == Status::Tox { tox } else { 0 });
+            }
             (m.ability, m.base_ability, m.item) = (mon.ability, mon.base_ability, mon.item);
             if k < ACTIVE
                 && self.spots[me][k].ability_touched
@@ -3359,6 +3451,13 @@ impl Follower {
             m.stats = [100; 6];
             (m.hp, m.status, m.fainted) = (entry.rec.hp as u16, entry.rec.status, entry.rec.fainted);
             m.faint_queued = m.fainted;
+            let fell_here = them.active.iter().any(|l| l.as_ref().is_some_and(|l| l.gone && l.entry == idx));
+            if m.fainted
+                && fell_here
+                && let Some((status, tox)) = self.faint_status[opp][idx]
+            {
+                (m.status, m.tox_stage) = (status, if status == Status::Tox { tox } else { 0 });
+            }
             side.team[idx] = m;
             side.shown[idx] = entry.rec;
         }
@@ -3507,9 +3606,19 @@ impl Follower {
                             // nothing said if it is already confused.
                             (self.rampage[s][idx], self.counts.rampage[s][idx]) = (NO_MOVE, 0);
                         }
-                        if self.rampage[s][idx] != NO_MOVE && self.fresh[s][idx] & 4 == 0 {
-                            self.counts.rampage[s][idx] = self.counts.rampage[s][idx].saturating_add(1);
-                            if self.counts.rampage[s][idx] >= 2 {
+                        if self.rampage[s][idx] != NO_MOVE
+                            && self.reader.live_record(s, p).is_some_and(|r| r.status == Status::Slp)
+                        {
+                            // Asleep at the turn's end: the lock's residual (after every ordered one, Yawn's
+                            // included) drops it without a word.
+                            (self.rampage[s][idx], self.counts.rampage[s][idx]) = (NO_MOVE, 0);
+                        }
+                        if self.rampage[s][idx] != NO_MOVE {
+                            if self.fresh[s][idx] & 4 == 0 {
+                                self.counts.rampage[s][idx] = self.counts.rampage[s][idx].saturating_add(1);
+                            }
+                            self.rampage_turns[s][idx] = self.rampage_turns[s][idx].saturating_add(1);
+                            if self.rampage_turns[s][idx] >= 3 {
                                 // Its third turn: a rampage lasts two or three, so it is over now, whether
                                 // or not anything was said (a holder already confused is told nothing).
                                 (self.rampage[s][idx], self.counts.rampage[s][idx]) = (NO_MOVE, 0);
@@ -3680,6 +3789,7 @@ impl Follower {
                 if queued && from != "lockedmove" && MOVES[used as usize].self_volatile == Some(VolKind::Lockedmove) {
                     // A rampage begins (or begins again), if the move lands.
                     (self.rampage[side][idx], self.counts.rampage[side][idx]) = (used, 0);
+                    self.rampage_turns[side][idx] = 0;
                     self.fresh[side][idx] |= 4;
                     self.rampage_pending = Some((side, idx));
                     let spot = &mut self.spots[side][pos];
@@ -4011,7 +4121,10 @@ impl Follower {
                     if about != NO_MOVE {
                         v.about = about;
                     }
-                    if matches!(vol, VolKind::Leechseed | VolKind::Yawn | VolKind::Attract | VolKind::Imprison) {
+                    if matches!(
+                        vol,
+                        VolKind::Leechseed | VolKind::Yawn | VolKind::Attract | VolKind::Imprison | VolKind::Octolock
+                    ) {
                         v.by = if vol == VolKind::Imprison { Some((side, idx, side * ACTIVE + pos)) } else { source };
                     }
                 }
@@ -4456,7 +4569,8 @@ impl Follower {
                         c.duration = v.turns_left();
                     }
                     // Whoever keeps it up, where the engine asks (Leech Seed's healer, a binding
-                    // move's user, Yawn's, Attract's, Imprison's).
+                    // move's user, Yawn's, Attract's, Imprison's, Octolock's: it holds only while
+                    // its user is on the field).
                     let read = matches!(
                         v.kind,
                         VolKind::Leechseed
@@ -4465,6 +4579,7 @@ impl Follower {
                             | VolKind::Attract
                             | VolKind::Imprison
                             | VolKind::Trapped
+                            | VolKind::Octolock
                     );
                     if read && let Some((s2, idx2, slot)) = v.by {
                         (c.source, c.source_slot) = (Some(MonRef { side: s2 as u8, idx: idx2 as u8 }), slot as u8);
