@@ -99,6 +99,7 @@ healing-wish-ally-switch|600|9949|--moves healingwish,allyswitch,fakeout --moves
 borrowed-move-stopped|300|9951|--moves copycat,uproar,outrage,thrash,petaldance,disable,protect --abilities cursedbody,noability --moves-per 3
 zoroark-disguises|400|7101|--species zoroark,zoroarkhisui --moves uturn,protect,nightdaze,flamethrower,knockoff,poisonjab,toxic,willowisp,explosion
 zoroark-on-the-team|600|7103|--species zoroark,zoroarkhisui,garchomp,milotic,arcanine,sylveon,snorlax,scizor,dragapult,gengar,politoed,azumarill
+no-retreat|400|9960|--species falinks,umbreon,snorlax,gengar --moves noretreat,meanlook,block,jawlock,batonpass,uturn,roar,copycat,instruct --moves-per 3 --check-legal
 perish-trap|600|9950|--species gengar,umbreon,politoed,azumarill,slowbro,snorlax,dragapult,kommoo --moves perishsong,meanlook,block,protect,uturn,batonpass,roar,whirlwind --abilities shadowtag,soundproof,noability --items gengarite,shedshell,ejectbutton,redcard --check-legal
 EOF
 }

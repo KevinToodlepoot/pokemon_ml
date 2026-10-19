@@ -513,11 +513,11 @@ fn local_200000_failures_have_matching_observations() {
             }
             25 => assert_eq!(f[435], 118.0 / 200.0, "a Cheri Berry cure is not waking from sleep"),
             9 => assert_eq!(f[596], 141.0 / 200.0, "lost-focus order supplies Speed evidence"),
-            11 => assert_eq!(f[650], 145.0 / 200.0, "lost focus after a pivot preserves queued priority"),
+            11 => assert_eq!(f[650], 117.0 / 200.0, "lost focus after a pivot preserves queued priority"),
             _ => unreachable!(),
         }
     }
-    assert_eq!(tally.observations, 482);
+    assert_eq!(tally.observations, 468);
     assert_eq!(tally.wrong, 0, "{:?}", tally.by_feature);
 }
 
@@ -925,7 +925,7 @@ fn fresh_sweep_failures_have_matching_observations() {
         assert_eq!(individual.wrong, 0, "case {}: {:?}", case.id, individual.first_wrong);
         assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)));
     }
-    assert_eq!(tally.observations, 951);
+    assert_eq!(tally.observations, 911);
     assert_eq!(tally.wrong, 0);
 }
 
@@ -963,7 +963,7 @@ fn private_items_track_symbiosis_transfers_between_requests() {
         assert_eq!(individual.wrong, 0, "case {}: {:?}", case.id, individual.first_wrong);
         assert!(matches!(check_follow(case, &mut tally), Outcome::Pass(_)));
     }
-    assert_eq!(tally.observations, 1103);
+    assert_eq!(tally.observations, 1061);
     assert_eq!(tally.wrong, 0);
 }
 

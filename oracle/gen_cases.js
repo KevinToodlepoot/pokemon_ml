@@ -75,8 +75,12 @@ const REQUESTS = !!args.requests;
 // A set is { species, moves, ability, item, nature, sp, gender } by name or id; `choices` are
 // Showdown's own ("move 1 2 mega, switch 3"; "" for a side that is not being asked). Each battle
 // is recorded like any other, up to the last choice given, so the engine can be held to a
-// particular line of play (scripts/perish_trap.json).
+// particular line of play (scripts/perish_trap.json). A battle may also give its `id` (kept in
+// the output in place of its place in the list) and `open_sheets` (in place of --open-sheets).
 const SCRIPTS = args.script ? JSON.parse(fs.readFileSync(args.script, 'utf8')) : null;
+// --until-rejected: a scripted battle whose choice Showdown rejects ends there, marked
+// `truncated`, instead of stopping the run (a recorded line replayed at another Showdown).
+const UNTIL_REJECTED = !!args['until-rejected'];
 function scriptedSet(set) {
 	const species = dex.species.get(set.species);
 	if (!species.exists) throw new Error(`unknown species ${set.species}`);
@@ -526,7 +530,8 @@ function runCase(id) {
 	battle.setPlayer('p2', { name: 'P2', team: full2.map(toPsSet) });
 	if (battle.requestState !== 'teampreview') throw new Error(`expected team preview, got ${battle.requestState}`);
 	// (What the server does once both players have accepted, or at once in a best-of-three.)
-	if (OPEN_SHEETS) battle.showOpenTeamSheets();
+	const openSheets = script && script.open_sheets !== undefined ? !!script.open_sheets : OPEN_SHEETS;
+	if (openSheets) battle.showOpenTeamSheets();
 
 	// Remember each Pokémon's pick order; Showdown reorders side.pokemon as it switches.
 	battle.sides.forEach((side, s) => picks[s].forEach((orig, k) => { side.pokemon[orig].pickIndex = k; }));
@@ -540,7 +545,8 @@ function runCase(id) {
 	// `teams` are the four each side brought, in the order picked; `rosters` the six it
 	// registered, which Team Preview showed, with `picks[side][k]` the roster index of `teams[side][k]`.
 	const out = {
-		id, seed, teams, rosters: [full1, full2], picks, open_sheets: OPEN_SHEETS,
+		id: script && script.id !== undefined ? script.id : id, seed, teams, rosters: [full1, full2], picks,
+		open_sheets: openSheets,
 		initial: snapshotOf(battle, p => p.pickIndex), steps: [], truncated: false,
 	};
 	if (script && script.name) out.name = script.name;
@@ -559,12 +565,20 @@ function runCase(id) {
 		// Decide who is being asked before anyone answers: the last answer starts the next
 		// request, which would otherwise look like one this step still had to fill.
 		const asked = battle.sides.map(side => !!side.activeRequest && !side.activeRequest.wait);
+		let rejected = null;
 		battle.sides.forEach((side, s) => {
-			if (!asked[s]) return;
+			if (!asked[s] || rejected) return;
 			if (!battle.choose(side.id, choices[s].join(', '))) {
-				throw new Error(`case ${id}: Showdown rejected "${choices[s].join(', ')}" for ${side.id}: ${side.choice.error}`);
+				rejected = `case ${out.id}: Showdown rejected "${choices[s].join(', ')}" for ${side.id}: ${side.choice.error}`;
 			}
 		});
+		if (rejected && !(script && UNTIL_REJECTED)) throw new Error(rejected);
+		if (rejected) {
+			console.error(`${rejected} (step ${out.steps.length + 1}); the battle ends there`);
+			stopped++;
+			out.truncated = true;
+			break;
+		}
 		const after = snapshotOf(battle, p => p.pickIndex);
 		if (TRACE) { after.draws = draws; draws = []; }
 		if (LOG) after.log = battle.log.slice(logPos);
@@ -577,7 +591,7 @@ function runCase(id) {
 }
 
 const fd = fs.openSync(OUT, 'w');
-let steps = 0, truncated = 0, turns = 0;
+let steps = 0, truncated = 0, turns = 0, stopped = 0;
 const ids = ONLY !== null ? [ONLY] : Array.from({ length: SCRIPTS ? SCRIPTS.length : N }, (_, i) => i);
 for (const id of ids) {
 	const c = runCase(id);
@@ -602,4 +616,5 @@ if (STATS) {
 	console.log(`moves used at least once: ${ALL_MOVES.length - unused.length}/${ALL_MOVES.length}; least used: ${least.slice(0, 5).map(x => x.join(' x')).join(', ')}`);
 }
 if (HOLDERS) fs.writeFileSync(HOLDERS, JSON.stringify(holderTally, null, 1));
-console.log(`wrote ${ids.length} battles, ${steps} decisions, ${truncated} cut off at turn ${MAX_TURNS}, mean length ${(turns / ids.length).toFixed(1)} turns -> ${OUT}`);
+console.log(`wrote ${ids.length} battles, ${steps} decisions, ${truncated - stopped} cut off at turn ${MAX_TURNS}, ` +
+	`${UNTIL_REJECTED ? `${stopped} ended at a rejected choice, ` : ''}mean length ${(turns / ids.length).toFixed(1)} turns -> ${OUT}`);

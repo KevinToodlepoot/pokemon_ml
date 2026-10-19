@@ -774,10 +774,16 @@ impl Battle {
                 e.relay
             }
 
-            // ---- No Retreat, and the "trapped" of Block, Mean Look and Jaw Lock
-            (VolKind::Noretreat | VolKind::Trapped, Ev::Start) => Res::Undef,
+            // ---- No Retreat (Champions): onStart(pokemon). It traps through "trapped", and stays
+            // on a Pokémon already trapped (unannounced), so it cannot be used again.
+            (VolKind::Noretreat, Ev::Start) => {
+                self.add_volatile(holder, VolKind::Trapped, None, Eff::None);
+                Res::Undef
+            }
+            // ---- The "trapped" of Block, Mean Look, Jaw Lock and No Retreat
+            (VolKind::Trapped, Ev::Start) => Res::Undef,
             // onTrapPokemon(pokemon)
-            (VolKind::Noretreat | VolKind::Trapped, Ev::TrapPokemon) => {
+            (VolKind::Trapped, Ev::TrapPokemon) => {
                 self.try_trap(holder, false);
                 Res::Undef
             }

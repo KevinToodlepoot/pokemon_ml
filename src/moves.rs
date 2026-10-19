@@ -64,7 +64,7 @@ impl HitEff {
             boosts: am.boosts,
             boost_order: d.boost_order,
             status: d.status,
-            volatile: if am.no_volatile { None } else { d.volatile },
+            volatile: d.volatile,
             side_condition: d.side_condition,
             slot_condition: d.slot_condition,
             pseudo_weather: d.pseudo_weather,
@@ -1454,8 +1454,13 @@ impl Battle {
         if nothing && any == FALSE && !is_self && !is_secondary {
             self.hide_pp_target(source, mi);
         }
-        if !nothing && self.am[mi as usize].self_switch != SelfSwitch::No && self.mon(source).hp > 0 {
-            let id = self.am[mi as usize].id;
+        // Only with someone to switch to (Revival Blessing marks it either way).
+        let id = self.am[mi as usize].id;
+        if !nothing
+            && self.am[mi as usize].self_switch != SelfSwitch::No
+            && self.mon(source).hp > 0
+            && (self.can_switch(source.side as usize) || id == mv::REVIVALBLESSING)
+        {
             let m = self.mon_mut(source);
             m.switch_flag = true;
             m.switch_move = id;

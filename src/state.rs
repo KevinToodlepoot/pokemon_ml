@@ -765,7 +765,8 @@ impl Queue {
     pub fn cancel(&mut self, mon: MonRef) {
         let mut w = 0;
         for r in 0..self.len as usize {
-            if self.items[r].mon != Some(mon) {
+            // Its switch-in effects (`runSwitch`) still happen.
+            if self.items[r].mon != Some(mon) || self.items[r].kind == ActKind::RunSwitch {
                 self.items[w] = self.items[r];
                 w += 1;
             }
@@ -1010,8 +1011,6 @@ pub(crate) struct ActiveMove {
     pub smart_target: bool,
     pub multiaccuracy: bool,
     pub infiltrates: bool,
-    /// The move has lost its `volatileStatus` (No Retreat on a Pokémon that is already trapped).
-    pub no_volatile: bool,
     pub has_bounced: bool,
     /// The ability that changed this move's type and boosts it (Pixilate and so on).
     pub type_changer_boosted: Eff,
@@ -1097,7 +1096,6 @@ impl ActiveMove {
             smart_target: d.smart_target,
             multiaccuracy: d.multiaccuracy,
             infiltrates: false,
-            no_volatile: false,
             has_bounced: false,
             type_changer_boosted: Eff::None,
             source_effect: Eff::None,

@@ -2001,9 +2001,8 @@ static CB_VOL_MINIMIZE: [CbInfo; 3] = [
     CbInfo { ev: Ev::ModifyDamage, pre: Pre::Source, order: 0, priority: 0, sub_order: 2, kind: CbKind::Fn },
     CbInfo { ev: Ev::Accuracy, pre: Pre::On, order: 0, priority: 0, sub_order: 2, kind: CbKind::Fn },
 ];
-static CB_VOL_NORETREAT: [CbInfo; 2] = [
+static CB_VOL_NORETREAT: [CbInfo; 1] = [
     CbInfo { ev: Ev::Start, pre: Pre::On, order: 0, priority: 0, sub_order: 2, kind: CbKind::Fn },
-    CbInfo { ev: Ev::TrapPokemon, pre: Pre::On, order: 0, priority: 0, sub_order: 2, kind: CbKind::Fn },
 ];
 static CB_VOL_TRAPPED: [CbInfo; 2] = [
     CbInfo { ev: Ev::TrapPokemon, pre: Pre::On, order: 0, priority: 0, sub_order: 2, kind: CbKind::Fn },
@@ -3765,7 +3764,7 @@ pub static VOL_CONDS: [CondData; 75] = [
     CondData { id: "dragoncheer", duration: 0, affects_fainted: false, no_copy: false, duration_cb: false, cbs: &CB_VOL_DRAGONCHEER, events: 0x20000001, events_pre: 0x0 },
     CondData { id: "magnetrise", duration: 5, affects_fainted: false, no_copy: false, duration_cb: false, cbs: &CB_VOL_MAGNETRISE, events: 0x40000000000203, events_pre: 0x0 },
     CondData { id: "minimize", duration: 0, affects_fainted: false, no_copy: true, duration_cb: false, cbs: &CB_VOL_MINIMIZE, events: 0x8000004, events_pre: 0x10000000000 },
-    CondData { id: "noretreat", duration: 0, affects_fainted: false, no_copy: false, duration_cb: false, cbs: &CB_VOL_NORETREAT, events: 0x801, events_pre: 0x0 },
+    CondData { id: "noretreat", duration: 0, affects_fainted: false, no_copy: false, duration_cb: false, cbs: &CB_VOL_NORETREAT, events: 0x1, events_pre: 0x0 },
     CondData { id: "trapped", duration: 0, affects_fainted: false, no_copy: true, duration_cb: false, cbs: &CB_VOL_TRAPPED, events: 0x801, events_pre: 0x0 },
     CondData { id: "trapper", duration: 0, affects_fainted: false, no_copy: true, duration_cb: false, cbs: &[], events: 0, events_pre: 0 },
     CondData { id: "octolock", duration: 0, affects_fainted: false, no_copy: false, duration_cb: false, cbs: &CB_VOL_OCTOLOCK, events: 0xa01, events_pre: 0x0 },

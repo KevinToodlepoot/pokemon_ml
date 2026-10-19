@@ -278,7 +278,18 @@ impl Battle {
         if s.pokemon_left == 0 {
             return false;
         }
-        (ACTIVE..s.n as usize).any(|p| !s.team[s.order[p] as usize].fainted)
+        (ACTIVE..s.n as usize).any(|p| self.switchable(side, s.order[p]))
+    }
+    /// One of `Battle#possibleSwitches`: a benched Pokémon that has not fainted and is not
+    /// already queued to switch in.
+    fn switchable(&self, side: usize, idx: u8) -> bool {
+        let mon = MonRef { side: side as u8, idx };
+        !self.mon(mon).fainted
+            && !self
+                .queue
+                .as_slice()
+                .iter()
+                .any(|a| matches!(a.kind, ActKind::Switch | ActKind::InstaSwitch) && a.switch_to == Some(mon))
     }
     /// Index of a Pokémon's slot in per-move hit data.
     pub(crate) fn slot_index(&self, r: MonRef) -> usize {
@@ -1307,11 +1318,9 @@ impl Battle {
             let mut passed = None;
             if self.mon(old).hp > 0 {
                 self.mon_mut(old).being_called_back = true;
-                if !self.mon(old).skip_before_switch_out && !is_drag {
-                    self.run_event(Ev::BeforeSwitchOut, Some(old), None, Eff::None, Res::Undef);
-                    self.each_event(Ev::Update);
+                if !is_drag {
+                    self.run_pursuit_activation(old);
                 }
-                self.mon_mut(old).skip_before_switch_out = false;
                 if !self.run_event(Ev::SwitchOut, Some(old), None, Eff::None, Res::Undef).truthy() {
                     return false;
                 }
@@ -1353,6 +1362,7 @@ impl Battle {
                 o.used_item_this_turn = false;
                 o.stats_raised_this_turn = false;
                 o.stats_lowered_this_turn = false;
+                o.skip_before_switch_out = false;
                 o.position = old_new_pos;
                 if o.fainted {
                     o.status = Status::None;
@@ -1408,6 +1418,21 @@ impl Battle {
         true
     }
 
+    /// `BattleActions#runPursuitActivation`: the BeforeSwitchOut event of a Pokémon about to
+    /// leave, once (`skip_before_switch_out` is Showdown's `skipPursuit`). Champions has no
+    /// Pursuit, so nothing has fainted here that would need resolving.
+    fn run_pursuit_activation(&mut self, r: MonRef) {
+        if self.mon(r).skip_before_switch_out {
+            return;
+        }
+        self.run_event(Ev::BeforeSwitchOut, Some(r), None, Eff::None, Res::Undef);
+        self.clear_active_move(false);
+        self.each_event(Ev::Update);
+        // Asked again only if the switch was called off.
+        let m = self.mon_mut(r);
+        m.skip_before_switch_out = !(m.hp > 0 && !m.switch_flag);
+    }
+
     /// `BattleActions#dragIn`: a random teammate takes the place of whoever is at `pos`.
     pub(crate) fn drag_in(&mut self, side: usize, pos: usize) -> bool {
         // `getRandomSwitchable`: the draw is made even when there is only one candidate.
@@ -1416,7 +1441,7 @@ impl Battle {
         let mut n = 0;
         if s.pokemon_left > 0 {
             for p in ACTIVE..s.n as usize {
-                if !s.team[s.order[p] as usize].fainted {
+                if self.switchable(side, s.order[p]) {
                     bench[n] = s.order[p];
                     n += 1;
                 }
@@ -1747,6 +1772,10 @@ impl Battle {
     /// `Battle#checkFainted`.
     fn check_fainted(&mut self) {
         for side in 0..2 {
+            // Nobody to send in: the fainted stay as they are.
+            if !self.can_switch(side) {
+                continue;
+            }
             for pos in 0..ACTIVE {
                 let r = self.active(side, pos);
                 let m = self.mon_mut(r);
@@ -1945,10 +1974,10 @@ impl Battle {
                 }
             }
             VolKind::Trapper => {
-                // Everyone it was holding goes free.
+                // Everyone it was holding goes free (not itself, after its No Retreat).
                 let (actives, n) = self.all_active(true);
                 for &other in &actives[..n] {
-                    if self.vols(other).get(VolKind::Trapped).is_some_and(|v| v.source == Some(r)) {
+                    if other != r && self.vols(other).get(VolKind::Trapped).is_some_and(|v| v.source == Some(r)) {
                         self.remove_volatile(other, VolKind::Trapped);
                     }
                 }
@@ -1958,8 +1987,11 @@ impl Battle {
     }
 
     fn anyone_trapped_by(&self, source: MonRef) -> bool {
+        // No Retreat's own `trapped` (its source is itself) is linked to nobody.
         let (actives, n) = self.all_active(true);
-        actives[..n].iter().any(|&o| self.vols(o).get(VolKind::Trapped).is_some_and(|v| v.source == Some(source)))
+        actives[..n]
+            .iter()
+            .any(|&o| o != source && self.vols(o).get(VolKind::Trapped).is_some_and(|v| v.source == Some(source)))
     }
 
     // ------------------------------------------------- field and side conditions
@@ -2852,18 +2884,16 @@ impl Battle {
         }
 
         self.clear_active_move(false);
-        self.faint_messages(false, false, true);
+        self.faint_messages(false, true, true);
         if self.ended {
             return;
         }
 
         let next = self.queue.peek().map(|x| x.kind);
-        match next {
-            None => self.check_fainted(),
-            Some(ActKind::InstaSwitch) => return,
-            _ => {}
+        if next.is_none() {
+            self.check_fainted();
         }
-        if a.kind != ActKind::Start {
+        if a.kind != ActKind::Start && next != Some(ActKind::InstaSwitch) {
             self.each_event(Ev::Update);
             for &(r, hp) in &residual[..n_residual] {
                 self.run_event(Ev::EmergencyExit, Some(r), None, Eff::None, Res::Num(hp as i32));
@@ -2896,10 +2926,8 @@ impl Battle {
                 for pos in 0..ACTIVE {
                     let r = self.active(side, pos);
                     let m = self.mon(r);
-                    if m.hp > 0 && m.switch_flag && m.switch_move != mv::REVIVALBLESSING && !m.skip_before_switch_out {
-                        self.run_event(Ev::BeforeSwitchOut, Some(r), None, Eff::None, Res::Undef);
-                        self.mon_mut(r).skip_before_switch_out = true;
-                        self.faint_messages(false, false, true);
+                    if m.hp > 0 && m.switch_flag && m.switch_move != mv::REVIVALBLESSING {
+                        self.run_pursuit_activation(r);
                         if self.ended {
                             return;
                         }
@@ -2916,7 +2944,7 @@ impl Battle {
             return;
         }
 
-        if next == Some(ActKind::Move) {
+        if self.queue.peek().is_some_and(|x| x.kind == ActKind::Move) {
             // Speed is dynamic since Gen 8: recompute and re-sort what is left.
             self.update_speed();
             let mut q = self.queue;

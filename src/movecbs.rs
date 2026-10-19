@@ -1803,17 +1803,13 @@ impl Battle {
                 Res::Undef
             }
 
-            // ---- No Retreat: onTry(source, target, move). Fails if already used;
-            // a Pokémon trapped by something else only gets the boosts.
+            // ---- No Retreat: onTry(source, target, move). Fails if already used.
             (mv::NORETREAT, Ev::Try) => {
                 let Some(source) = e.target else {
                     return Res::Undef;
                 };
                 if self.vols(source).has(VolKind::Noretreat) {
                     return FALSE;
-                }
-                if self.vols(source).has(VolKind::Trapped) {
-                    self.am[mi as usize].no_volatile = true;
                 }
                 Res::Undef
             }
