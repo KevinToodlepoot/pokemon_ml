@@ -9,7 +9,9 @@ longer accepts, where the battle now ends (`truncated`).
   scripts/rerecord.py --check tests/fixtures/NAME.jsonl [...]   only list them
 
 A line fails if it does not pass alone: `difftest --strict` for a recording with Showdown's
-state, `followcheck --export` for one with only the log and requests. A re-recorded line keeps
+state, `followcheck --export` for one with only the log and requests, and both (the follower held
+to Showdown's state at every step, `--require-state`) for one with the state, the log and the
+requests. A re-recorded line keeps
 the fields the old one had (a follower fixture stays cut down to its log and requests), its id
 and anything written beside it (`_generation`).
 """
@@ -34,10 +36,15 @@ def passes(line, work):
     with open(path, "w") as f:
         f.write(line + "\n")
     case = json.loads(line)
+    followed = "log" in case["initial"] and "requests" in case["initial"]
     if has_state(case):
         out = subprocess.run([DIFFTEST, path, "--strict"], capture_output=True, text=True)
-        return out.returncode == 0 and " 0 diverged" in out.stdout
-    out = subprocess.run([FOLLOWCHECK, path, "--export"], capture_output=True, text=True)
+        if out.returncode != 0 or " 0 diverged" not in out.stdout:
+            return False
+        if not followed:
+            return True
+    args = [FOLLOWCHECK, path, "--export"] + (["--require-state"] if has_state(case) else [])
+    out = subprocess.run(args, capture_output=True, text=True)
     text = out.stdout + out.stderr
     return out.returncode == 0 and " 0 not followed" in text and "compared, 0 differ" in text
 

@@ -82,7 +82,7 @@ use serde_json::Value;
 
 use crate::battle::{PokemonSet, calc_stats, types_copied};
 use crate::data::*;
-use crate::env::{Counts, GameState, N_PREVIEW, OBS_M, choice_of, masks_of, preview_table};
+use crate::env::{Counts, GameState, N_PREVIEW, OBS_M, Untold, choice_of, masks_of, preview_table};
 use crate::format::ShowdownSet;
 use crate::obs::{
     INFO, OBS_I, Phase, ROSTER, TIMED_SLOTS, TIMED_VOLATILES, Timers, is_mega, observe_battle, observe_preview,
@@ -205,11 +205,17 @@ struct Spot {
     reordered: Option<usize>,
     /// A Speed Swap has been used while it has stood here: its Speed may not be its own.
     swap_seen: bool,
+    /// The other side's: this stay it has split or swapped stats with a partner (Power Split, Guard
+    /// Split, Speed Swap), so its stats come from two spreads this side does not know ([`Untold::StatsShared`]).
+    stats_shared: bool,
     genuine_form: bool,
     /// Its move this turn may not be the one it chose: an Encore came first, as of this many moves begun.
     overridden: Option<usize>,
     /// Its move went ahead of its bracket, and said so (Quick Claw, Quick Draw, Custap Berry).
     quick: bool,
+    /// The same for the move an Encore put in its place: Champions' Encore resolves that move
+    /// afresh, and its Quick Claw is rolled again (and says so) after the Encore's line.
+    quick_again: bool,
     /// It has been seen to lose an item since it came in (Unburden asks), and when (an Unburden's
     /// condition goes up then).
     lost_item: bool,
@@ -218,6 +224,10 @@ struct Spot {
     ability_touched: bool,
     /// Own ability knowledge after an allied swap, before the next exact request.
     own_abilities: Option<Vec<u16>>,
+    /// The other side's: the ability it has had this stay since a Skill Swap with its partner,
+    /// which Showdown does not name (`|-activate|p2a: A|Skill Swap|||[of] p2b: B`), as this side
+    /// can work it out: what the partner was shown to have, or else its sheet's (its Mega's).
+    their_ability: Option<u16>,
     /// The item the log has given it, or left it without (`it::NONE`), since the last request.
     item_since: Option<u16>,
     /// It has said it has Pressure, as its holder does on coming in or coming by it. (A
@@ -255,10 +265,14 @@ struct Spot {
     hits: u16,
     attacked: bool,
     /// Who has aimed a move at it that reached it, and stayed on the field since (bit `side *
-    /// MAX_TEAM + team index`): the engine's `TypesSaid::attacked_by`.
+    /// MAX_TEAM + team index`): the engine's `TypesSaid::attacked_by`; and by bit, the stay of the
+    /// attacker that set it (a disguise dropping takes only its own stay's, `refile_disguise`).
     attacked_by: u16,
+    attacked_stay: [u32; 2 * MAX_TEAM],
     last_damage: i32,
-    damaged_by: Vec<(usize, usize, u16)>,
+    /// The hits it took from the other side, as the engine's `damaged_by`: who (by number), from where,
+    /// how much, and the stay of the attacker that landed it.
+    damaged_by: Vec<(usize, usize, u16, u32)>,
     result_now: Option<Option<bool>>,
     result_last: Option<Option<bool>>,
     aimed: i8,
@@ -312,13 +326,16 @@ impl Spot {
             first: None,
             reordered: None,
             swap_seen: false,
+            stats_shared: false,
             genuine_form: false,
             overridden: None,
             quick: false,
+            quick_again: false,
             lost_item: false,
             unburden_seq: 0,
             ability_touched: false,
             own_abilities: None,
+            their_ability: None,
             item_since: None,
             pressing: false,
             choice: None,
@@ -332,6 +349,7 @@ impl Spot {
             hits: 0,
             attacked: false,
             attacked_by: 0,
+            attacked_stay: [0; 2 * MAX_TEAM],
             last_damage: 0,
             damaged_by: Vec::new(),
             result_now: None,
@@ -666,10 +684,22 @@ struct Begun {
     /// Encore is still active as this move begins; replacement can outlive it.
     encored: bool,
     quick: bool,
+    quick_again: bool,
     seen: [Seen; 4],
     field: FieldSeen,
     /// The follower's own two at that moment: which stay, and what it knew of each.
     own: [(u32, Option<OwnNow>); ACTIVE],
+}
+
+impl Begun {
+    /// Whether its move stood ahead of its bracket when the `at`th move of the stretch began: the
+    /// one it chose by a roll said before an Encore replaced it, the replacement by its own roll.
+    fn quick_at(&self, at: usize) -> bool {
+        match self.overridden {
+            Some(t) if t <= at => self.quick_again,
+            _ => self.quick,
+        }
+    }
 }
 
 /// What a move in progress has set up that a `-fail` line takes back.
@@ -778,6 +808,30 @@ pub struct Follower {
     /// By side and team index: the turns it has tried to move while frozen (Champions thaws a
     /// Pokémon after three at most, so what is left of a freeze is public).
     frozen: [[u8; MAX_TEAM]; 2],
+    /// By side and team index: its rampage's second turn was used where the end it may then have
+    /// come to would have been told to nobody (the confusion it brings taken silently): the lock it
+    /// is kept in for a third turn may be over (D89, D94; [`Untold::Rampage`]).
+    rampage_silent: [[bool; MAX_TEAM]; 2],
+    /// The other side's PP paid to Pressure behind a blanked target, one each or two (D89, D94;
+    /// [`Untold::PressurePp`]): by the number each goes by, the move and how many times.
+    pressure_doubt: Vec<(usize, u16, u8)>,
+    /// By own team index: where Champions' Encore's draw sent its last move is not told (D89, D94;
+    /// [`Untold::EncoreTarget`]), until it moves again.
+    encore_doubt: [bool; MAX_TEAM],
+    /// By own position: an Encore put its move in again this turn before it moved (`Some`), and one
+    /// of the other side has fainted since (`Some(true)`).
+    encore_faint: [Option<bool>; ACTIVE],
+    /// Exact HP of the other side's this side has worked out (a Pain Split or an Endeavor with one
+    /// of its own, whose HP it is told exactly), with the percentage and bar it showed then: by the
+    /// number each goes by ([`crate::env::HpSeen`]).
+    /// (And the stay that saw it: a disguise that drops takes its own, `refile_disguise`.)
+    hp_seen: Vec<(usize, u16, u8, crate::shown::Bar, u32)>,
+    /// The other side's: those of them whose HP that still is (the number, the HP).
+    hp_now: Vec<(usize, u16)>,
+    /// A Pain Split's two `-sethp` lines, the first until the second comes.
+    pain_split: Option<(usize, usize, String)>,
+    /// An Endeavor under way (its user, and the place it was aimed at), until its hit or the next move.
+    endeavor: Option<((usize, usize), (usize, usize))>,
     /// The HP of the follower's own Pokémon at each position, as its log last gave it exactly.
     own_hp: [Option<u16>; ACTIVE],
     /// The move under way (its user), and what it has come to so far at the Pokémon it was aimed
@@ -1064,6 +1118,14 @@ impl Follower {
             rampage: [[NO_MOVE; MAX_TEAM]; 2],
             rampage_turns: [[0; MAX_TEAM]; 2],
             frozen: [[0; MAX_TEAM]; 2],
+            rampage_silent: [[false; MAX_TEAM]; 2],
+            pressure_doubt: Vec::new(),
+            encore_doubt: [false; MAX_TEAM],
+            encore_faint: [None; ACTIVE],
+            hp_seen: Vec::new(),
+            hp_now: Vec::new(),
+            pain_split: None,
+            endeavor: None,
             own_hp: [None; ACTIVE],
             under_way: None,
             reached: Vec::new(),
@@ -1389,6 +1451,22 @@ impl Follower {
         {
             self.roused = None;
         }
+        // The other side's allied Skill Swap names no abilities: what each had, as far as this side
+        // knows it, before the reader forgets them (for the export: `complete`).
+        let their_swap = if kind == "-activate" && effect_id(arg(3)) == "skillswap" && arg(4).is_empty() {
+            let other = parts
+                .iter()
+                .find_map(|p| p.strip_prefix("[of]").and_then(|p| ident(p.trim())))
+                .and_then(|id| id.pos.map(|pos| (id.side, pos)));
+            match (who, other) {
+                (Some((s, p)), Some((t, q))) if s != self.side && t == s && p != q => {
+                    Some((p, q, self.their_ability_now(p), self.their_ability_now(q)))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         let held = |me: &Follower| -> [Option<(ItemShown, u16, bool)>; 4] {
             std::array::from_fn(|k| {
                 me.reader.live_record(k / 2, k % 2).map(|rec| (rec.item, rec.ability, rec.ability_changed))
@@ -1544,6 +1622,10 @@ impl Follower {
         if let Some((p, q, first, second)) = own_swap {
             self.spots[self.side][p].own_abilities = second;
             self.spots[self.side][q].own_abilities = first;
+        }
+        if let Some((p, q, first, second)) = their_swap {
+            let opp = 1 - self.side;
+            (self.spots[opp][p].their_ability, self.spots[opp][q].their_ability) = (second, first);
         }
         let at = self.begun.len();
         for (side, listed, doubt, item, lost) in self.reader.item_notes.drain(..) {
@@ -1734,6 +1816,7 @@ impl Follower {
             reordered: spot.reordered,
             round_before,
             overridden: spot.overridden,
+            quick_again: spot.quick_again,
             encored: spot.has(VolKind::Encore),
             quick: spot.quick,
             seen,
@@ -1768,21 +1851,31 @@ impl Follower {
             }
         }
         self.spots[opp][pos].spent = spent;
-        // Who it attacked: filed under the number it passed for, which is its own.
-        let (from_bit, to_bit) = (1u16 << (opp * MAX_TEAM + was), 1u16 << (opp * MAX_TEAM + now));
+        // Who it attacked this stay: filed under the number it passed for, which is its own. (What the
+        // Pokémon it passed for did under that number, in a stay of its own, stays with it.)
+        let stay = self.spots[opp][pos].stay;
+        let (from, to) = (opp * MAX_TEAM + was, opp * MAX_TEAM + now);
         for spot in self.spots.iter_mut().flatten() {
-            if spot.attacked_by & from_bit != 0 {
-                spot.attacked_by = (spot.attacked_by & !from_bit) | to_bit;
+            if spot.attacked_by & 1 << from != 0 && spot.attacked_stay[from] == stay {
+                spot.attacked_by = (spot.attacked_by & !(1 << from)) | 1 << to;
+                spot.attacked_stay[to] = stay;
             }
         }
         // (The hits each of this side's Pokémon took name the other side's attacker by its number.)
         for spot in self.spots[1 - opp].iter_mut() {
-            for hit in spot.damaged_by.iter_mut().filter(|d| d.0 == was) {
+            for hit in spot.damaged_by.iter_mut().filter(|d| d.0 == was && d.3 == stay) {
                 hit.0 = now;
             }
         }
         if let Some((filed, before)) = self.spots[opp][pos].used {
             (self.used_up[opp][now], self.used_up[opp][was]) = (filed, before);
+        }
+        // The exact HP this stay saw of it, which was its own.
+        for e in self.hp_seen.iter_mut().filter(|e| e.0 == was && e.4 == stay) {
+            e.0 = now;
+        }
+        for n in self.hp_now.iter_mut().filter(|n| n.0 == was) {
+            n.0 = now;
         }
         // The blow that knocked it out, if it fell in disguise.
         if let Some(ko) = self.ko_hit[opp].get_mut(was).and_then(Option::take) {
@@ -1821,6 +1914,10 @@ impl Follower {
         if from.contains("Baton Pass") {
             fresh.boosts = old.boosts;
             fresh.vols = old.vols.iter().copied().filter(|v| !v.kind.data().no_copy).collect();
+            // A binding or a confusion handed on is counted afresh, from the next decision, as [`Counts`]
+            // counts by team index: the one who took it was not on the field at the last decision.
+            (fresh.bound_new, fresh.confused_new) =
+                (fresh.has(VolKind::Partiallytrapped), fresh.has(VolKind::Confusion));
             if team.active[pos].as_ref().is_some_and(|l| {
                 l.rec.ability != UNKNOWN && ABILITIES[l.rec.ability as usize].flags & AF_CANTSUPPRESS != 0
             }) {
@@ -1892,7 +1989,7 @@ impl Follower {
             (spot.hits, spot.attacked) = (hits as u16, true);
             spot.attacked_by |= 1 << (attacker * MAX_TEAM + by);
             if attacker != side {
-                spot.damaged_by.push((by, slot, damage));
+                spot.damaged_by.push((by, slot, damage, 0));
             }
         }
         self.items.push((self.begun.len(), Event::Switch { r: self.mon_ref(side, pos) }));
@@ -1940,6 +2037,7 @@ impl Follower {
             }
             "turn" => {
                 self.turn = arg(2).parse().map_err(|_| "unreadable turn".to_string())?;
+                self.encore_faint = [None; ACTIVE];
                 self.check_fainted();
                 self.upkept = false;
                 (self.fainted_last, self.fainted_now) = (self.fainted_now, [false; 2]);
@@ -1951,6 +2049,7 @@ impl Follower {
                             spot.active_turns += 1;
                         }
                         (spot.begun, spot.reordered, spot.overridden, spot.quick) = (0, None, None, false);
+                        spot.quick_again = false;
                         spot.rampage_moved = false;
                         // Showdown says at the end of a turn what a Pokémon's types have
                         // become, if they have changed: one of the follower's own that took
@@ -2140,6 +2239,11 @@ impl Follower {
             }
             "faint" => {
                 self.fainted_now[side] = true;
+                if side != self.side {
+                    for caught in self.encore_faint.iter_mut().filter(|c| **c == Some(false)) {
+                        *caught = Some(true);
+                    }
+                }
                 self.faints[side] = self.faints[side].saturating_add(1);
                 let left = self.spots[side][pos].stay;
                 for spot in self.spots.iter_mut().flatten() {
@@ -2151,6 +2255,8 @@ impl Follower {
                 let forme = species_id(&to_id(arg(3).split(',').next().unwrap_or("")));
                 let spot = self.spot(side, pos);
                 (spot.types, spot.added) = (None, Type::None);
+                // (A new forme has its own stats, worked out afresh: a split before it is gone.)
+                spot.stats_shared = false;
                 if kind == "-formechange" && forme.is_some() {
                     spot.forme = forme;
                 }
@@ -2206,6 +2312,17 @@ impl Follower {
                 if queued && used != mv::STRUGGLE && self.spots[side][pos].first.is_none() {
                     let spot = self.spot(side, pos);
                     spot.first = Some((used, spot.next_seq()));
+                }
+                if side == self.side {
+                    // Where Champions' Encore's draw sent its move, if the Pokémon drawn fainted first, is
+                    // not told (D89): until it moves again.
+                    let single =
+                        matches!(MOVES[used as usize].target, Target::Normal | Target::AdjacentFoe | Target::Any);
+                    let idx = self.own_at[pos];
+                    if idx < MAX_TEAM {
+                        self.encore_doubt[idx] = replaced && single && self.encore_faint[pos] == Some(true);
+                    }
+                    self.encore_faint[pos] = None;
                 }
                 if queued {
                     let mine = side == self.side;
@@ -2390,7 +2507,27 @@ impl Follower {
                                 && self.reader.live_record(s, p).is_some_and(|rec| rec.ability == ab::PRESSURE)
                         })
                         .count() as u8;
+                    // Behind a blanked target (a failed Sucker Punch), with a Pressure Pokémon and one without
+                    // where it could have been aimed, whether it paid a PP more is not told (D89).
+                    let blanked = arg(4).is_empty()
+                        && parts.contains(&"[still]")
+                        && matches!(data.target, Target::Normal | Target::AdjacentFoe | Target::Any);
+                    let pressing: Vec<bool> = (0..ACTIVE)
+                        .filter(|&p| self.present(1 - side, p))
+                        .map(|p| {
+                            self.spots[1 - side][p].pressing
+                                && !self.spots[1 - side][p].has(VolKind::Gastroacid)
+                                && self.reader.live_record(1 - side, p).is_some_and(|rec| rec.ability == ab::PRESSURE)
+                        })
+                        .collect();
+                    let doubt = blanked && pressing.contains(&true) && pressing.contains(&false);
                     if let Some(entry) = self.reader.sides[side].active[pos].as_ref().map(|l| l.entry) {
+                        if doubt {
+                            match self.pressure_doubt.iter_mut().find(|d| (d.0, d.1) == (entry, paying)) {
+                                Some(d) => d.2 = d.2.saturating_add(1),
+                                None => self.pressure_doubt.push((entry, paying, 1)),
+                            }
+                        }
                         if self.their_pp.len() <= entry {
                             self.their_pp.resize(entry + 1, Vec::new());
                         }
@@ -2723,14 +2860,28 @@ impl Follower {
                             .push((begun, Event::Swap { first: self.mon_ref(side, pos), second: self.mon_ref(s, p) }));
                         self.spots[side][pos].swap_seen = true;
                         self.spots[s][p].swap_seen = true;
+                        if side != self.side && s == side {
+                            (self.spots[side][pos].stats_shared, self.spots[s][p].stats_shared) = (true, true);
+                        }
+                    }
+                } else if matches!(name.as_str(), "powersplit" | "guardsplit") {
+                    // Two of the other side's averaging stats this side cannot put a number to.
+                    if let Some((s, p)) = of.or(fourth)
+                        && side != self.side
+                        && s == side
+                    {
+                        (self.spots[side][pos].stats_shared, self.spots[s][p].stats_shared) = (true, true);
                     }
                 } else if matches!(name.as_str(), "afteryou" | "quash") {
                     let spot = self.spot(side, pos);
                     spot.reordered = Some(spot.reordered.map_or(begun, |t| t.min(begun)));
                 } else if matches!(name.as_str(), "quickclaw" | "quickdraw" | "custapberry") {
                     // Instruct resolves a fresh move and can roll its item again;
-                    // that roll did not promote the original queued action.
-                    if !self.spots[side][pos].instructed {
+                    // that roll did not promote the original queued action. Nor does a roll for the
+                    // move an Encore has just put in its place: it goes with that one.
+                    if self.spots[side][pos].overridden.is_some() {
+                        self.spot(side, pos).quick_again = true;
+                    } else if !self.spots[side][pos].instructed {
                         self.spot(side, pos).quick = true;
                     }
                 } else if name == "symbiosis" {
@@ -3054,6 +3205,9 @@ impl Follower {
                     spot.add(kind, Ends::Said);
                     if kind == VolKind::Encore && begun == 0 {
                         spot.overridden = Some(at);
+                        if side == self.side {
+                            self.encore_faint[pos] = Some(false);
+                        }
                     }
                     let spot = self.spot(side, pos);
                     if kind == VolKind::Smackdown {
@@ -3240,6 +3394,21 @@ impl Follower {
 
     fn open(&self) -> bool {
         self.reader.sides[1 - self.side].open
+    }
+
+    /// The ability the other side's Pokémon at `pos` has now, as this side can tell: as shown, or as
+    /// worked out after an allied Skill Swap, or else (with the sheets open) its sheet's, its Mega's.
+    fn their_ability_now(&self, pos: usize) -> Option<u16> {
+        let opp = 1 - self.side;
+        let live = self.reader.sides[opp].active[pos].as_ref()?;
+        if live.rec.ability != UNKNOWN {
+            return Some(live.rec.ability);
+        }
+        if let Some(a) = self.spots[opp][pos].their_ability {
+            return Some(a);
+        }
+        let sheet = self.reader.sides[opp].roster.get(live.rec.listed as usize).filter(|_| self.open())?;
+        Some(if is_mega(live.species) { SPECIES[live.species as usize].ability0 } else { sheet.ability })
     }
 
     /// The battle as the log and the last request have it.
@@ -3582,7 +3751,7 @@ impl Follower {
                         if !first {
                             (spot.lowered, spot.raised, spot.used_item) = (false, false, false);
                         }
-                        spot.damaged_by.retain(|&(idx, _, _)| here.contains(&(1 - s, idx)));
+                        spot.damaged_by.retain(|&(idx, _, _, _)| here.contains(&(1 - s, idx)));
                         for bit in 0..2 * MAX_TEAM {
                             if spot.attacked_by & 1 << bit != 0 && !here.contains(&(bit / MAX_TEAM, bit % MAX_TEAM)) {
                                 spot.attacked_by &= !(1 << bit);
@@ -3661,6 +3830,7 @@ impl Follower {
                 self.own_hp[pos] = Some(0);
             }
         }
+        self.hp_told(kind, side, pos, parts, from);
         let idx = self.mon_ref(side, pos).idx as usize;
         let mover = self.mover.as_ref().map(|m| (m.side, m.pos)).filter(|&m| m != (side, pos));
         let single = |m: u16| {
@@ -3778,18 +3948,27 @@ impl Follower {
                         None => target.into_iter().collect(),
                     };
                     reached.retain(|&t| t != (side, pos) && self.present(t.0, t.1));
+                    let stay = self.spots[side][pos].stay;
                     for (s, p) in reached {
                         let spot = &mut self.spots[s][p];
                         self.reached.push(((s, p), spot.attacked, spot.attacked_by));
                         spot.attacked_by |= bit;
+                        spot.attacked_stay[bit.trailing_zeros() as usize] = stay;
                         spot.attacked = true;
                     }
                 }
                 self.rampage_pending = None;
-                if queued && from != "lockedmove" && MOVES[used as usize].self_volatile == Some(VolKind::Lockedmove) {
+                // (A move another calls, Copycat's, locks its user as well: Showdown's `useMove` adds the
+                // move's own lock; only a Dancer's copy, an external move, does not, and no Dancer is in
+                // Champions.)
+                let called = caller.is_some() && from.starts_with("move: ");
+                if (queued || called)
+                    && from != "lockedmove"
+                    && MOVES[used as usize].self_volatile == Some(VolKind::Lockedmove)
+                {
                     // A rampage begins (or begins again), if the move lands.
                     (self.rampage[side][idx], self.counts.rampage[side][idx]) = (used, 0);
-                    self.rampage_turns[side][idx] = 0;
+                    (self.rampage_turns[side][idx], self.rampage_silent[side][idx]) = (0, false);
                     self.fresh[side][idx] |= 4;
                     self.rampage_pending = Some((side, idx));
                     let spot = &mut self.spots[side][pos];
@@ -3798,6 +3977,10 @@ impl Follower {
                     // A later turn of it: renewed if the move lands, over if it misses or is blocked.
                     self.rampage_pending = Some((side, idx));
                     self.spots[side][pos].rampage_moved = true;
+                    // Its second turn may be its last (it lasts two or three), and then the confusion its
+                    // end brings says so, unless it is taken without a word; a third turn says it was not.
+                    self.rampage_silent[side][idx] =
+                        self.rampage_turns[side][idx] == 1 && self.confusion_unsaid(side, pos);
                 }
             }
             "cant" if arg(3).starts_with("ability: ") && parts.iter().any(|p| p.starts_with("[of] ")) => {
@@ -3814,7 +3997,9 @@ impl Follower {
                     self.frozen[side][idx] = self.frozen[side][idx].saturating_add(1);
                 }
                 if arg(3) == "slp" && self.fresh[side][idx] & 1 == 0 {
-                    let early = self.ability_at(side, pos) == ab::EARLYBIRD;
+                    // (Early Bird wakes it twice as fast, unless Gastro Acid has suppressed it.)
+                    let early =
+                        self.ability_at(side, pos) == ab::EARLYBIRD && !self.spots[side][pos].has(VolKind::Gastroacid);
                     self.counts.sleep[side][idx] = self.counts.sleep[side][idx].saturating_add(1 + early as u8);
                 }
             }
@@ -3883,12 +4068,13 @@ impl Follower {
                         (true, Some(was), Some(now)) => was.saturating_sub(now),
                         _ => 1,
                     };
+                    let stay = self.spots[s][p].stay;
                     let spot = &mut self.spots[side][pos];
                     spot.hits = spot.hits.saturating_add(1);
                     (spot.attacked, spot.last_damage) = (true, damage as i32);
                     if s != side {
                         spot.damaged_by.retain(|d| d.0 != by);
-                        spot.damaged_by.push((by, s * ACTIVE + p, damage));
+                        spot.damaged_by.push((by, s * ACTIVE + p, damage, stay));
                     }
                     self.move_hits[side][pos] = self.move_hits[side][pos].saturating_add(1);
                     if arg(3).starts_with("0 fnt") {
@@ -4018,9 +4204,11 @@ impl Follower {
                     && !self.reached.iter().any(|r| r.0 == t)
                 {
                     let bit = 1 << (side * MAX_TEAM + idx);
+                    let stay = self.spots[side][pos].stay;
                     let spot = &mut self.spots[t.0][t.1];
                     self.reached.push((t, spot.attacked, spot.attacked_by));
                     spot.attacked_by |= bit;
+                    spot.attacked_stay[bit.trailing_zeros() as usize] = stay;
                     spot.attacked = true;
                 }
                 if self.under_way.is_some_and(|u| u.0 == (side, pos))
@@ -4164,6 +4352,94 @@ impl Follower {
 
     /// The ability the Pokémon at a position is taken to have: one of its own as it knows it,
     /// one of the other side's as shown, else as its sheet says.
+    /// An exact HP of the other side's, where a line lets this side work one out (D77): both Pokémon of
+    /// a Pain Split end at the same HP (each kept to its max HP, Showdown `painsplit`), and an Endeavor
+    /// leaves its target at its user's HP; with one of them this side's own, whose HP it is told to
+    /// the point, the other's is known too (while its bar is short of full, which would only bound
+    /// its max HP). Any other line that moves that HP, or a switch, ends what is known of it now.
+    fn hp_told(&mut self, kind: &str, side: usize, pos: usize, parts: &[&str], from: &str) {
+        let foe = 1 - self.side;
+        let cond = parts.get(3).copied().unwrap_or("");
+        if kind == "move" {
+            // (An Endeavor's hit is the line after its own; any other move ends the wait for one.)
+            self.endeavor = (move_id(&to_id(cond)) == Some(mv::ENDEAVOR))
+                .then(|| parts.get(4).and_then(|t| self.place_of(t)).map(|t| ((side, pos), t)))
+                .flatten();
+            return;
+        }
+        if side == foe {
+            if matches!(kind, "switch" | "drag" | "replace") {
+                // (Who left may have healed on the way out, Regenerator's: nothing is known of the side now.)
+                self.hp_now.clear();
+            } else if matches!(kind, "-damage" | "-heal" | "-sethp" | "faint")
+                && let Some(entry) = self.reader.sides[foe].active[pos].as_ref().map(|l| l.entry)
+            {
+                self.hp_now.retain(|n| n.0 != entry);
+            }
+        }
+        let exact = |c: &str| -> Option<(u16, u16)> {
+            let (hp, max) = c.split(' ').next()?.split_once('/')?;
+            Some((hp.parse().ok()?, max.trim_end_matches(|ch: char| ch.is_ascii_alphabetic()).parse().ok()?))
+        };
+        let told = |c: &str| crate::observer::condition(c).ok().map(|(pct, bar, _, _)| (pct, bar));
+        let mut learnt = None;
+        if kind == "-sethp" && from == "move: Pain Split" {
+            match self.pain_split.take() {
+                None => self.pain_split = Some((side, pos, cond.to_string())),
+                Some((s, p, first)) => {
+                    let pair = [(s, p, first), (side, pos, cond.to_string())];
+                    if let (Some(own), Some(theirs)) =
+                        (pair.iter().find(|x| x.0 == self.side), pair.iter().find(|x| x.0 == foe))
+                        && let Some((hp, max)) = exact(&own.2)
+                        && hp < max
+                    {
+                        learnt = Some((theirs.1, hp, told(&theirs.2)));
+                    }
+                }
+            }
+        } else if kind == "-damage"
+            && from.is_empty()
+            && let Some((m, aimed)) = self.endeavor.take()
+            && aimed == (side, pos)
+        {
+            if side == foe && m.0 == self.side {
+                // This side's Endeavor: its target is left at the user's HP.
+                learnt = self.own_hp[m.1].map(|hp| (pos, hp, told(cond)));
+            } else if side == self.side && m.0 == foe {
+                // The other side's on this side's: the user's HP is what this one is left at.
+                let shown = self.reader.live_record(foe, m.1).map(|r| (r.hp, r.bar));
+                learnt = exact(cond).map(|(hp, _)| (m.1, hp, shown));
+            }
+        }
+        if let Some((at, hp, Some((pct, bar)))) = learnt
+            && pct > 0
+            && pct < 100
+            && hp > 0
+            && let Some(entry) = self.reader.sides[foe].active[at].as_ref().map(|l| l.entry)
+        {
+            self.hp_seen.push((entry, hp, pct, bar, self.spots[foe][at].stay));
+            self.hp_now.retain(|n| n.0 != entry);
+            self.hp_now.push((entry, hp));
+        }
+    }
+
+    /// Whether a confusion coming to the Pokémon at a position now, as a rampage's end brings it, would
+    /// be taken without a word: it is already confused, has Own Tempo, or stands on the ground in
+    /// Misty Terrain (its grounding as this side can work it out; where it cannot, it may).
+    fn confusion_unsaid(&self, side: usize, pos: usize) -> bool {
+        let spot = &self.spots[side][pos];
+        if spot.has(VolKind::Confusion)
+            || (self.ability_at(side, pos) == ab::OWNTEMPO && !spot.has(VolKind::Gastroacid))
+        {
+            return true;
+        }
+        self.field.terrain == Terrain::Mistyterrain
+            && self.rebuild().map_or(true, |mut b| {
+                let r = b.active(side, pos);
+                b.is_grounded(r, false)
+            })
+    }
+
     fn ability_at(&self, side: usize, pos: usize) -> u16 {
         if side == self.side {
             return self.own_now(pos).and_then(|now| now.abilities.first().copied()).unwrap_or(ab::NOABILITY);
@@ -4263,7 +4539,37 @@ impl Follower {
         }
         let mut b = self.battle.ok_or("no battle rebuilt")?;
         self.complete(&mut b, &rosters[1 - self.side])?;
+        let foe = 1 - self.side;
+        let hp_seen = self
+            .hp_seen
+            .iter()
+            .map(|&(entry, hp, pct, bar, _)| crate::env::HpSeen {
+                side: foe as u8,
+                team_index: entry as u8,
+                hp,
+                pct,
+                bar: format!("{bar:?}").to_lowercase(),
+                now: self.hp_now.contains(&(entry, hp))
+                    && (0..ACTIVE).any(|p| {
+                        self.present(foe, p)
+                            && self.reader.sides[foe].active[p].as_ref().is_some_and(|l| l.entry == entry)
+                    }),
+            })
+            .collect();
+        // (The PP a doubtful move has left as the export counts it, read off the battle completed.)
+        let mut untold = self.untold(req.asked == Asked::Move);
+        for u in &mut untold {
+            if let Untold::PressurePp { side, team_index, move_id, pp, .. } = u {
+                let m = b.mon(MonRef { side: *side, idx: *team_index });
+                *pp = m.moves[..m.n_moves as usize]
+                    .iter()
+                    .find(|s| MOVES[s.id as usize].id == move_id.as_str())
+                    .map_or(0, |s| s.pp);
+            }
+        }
         Ok(GameState {
+            untold,
+            hp_seen,
             rosters: teams,
             open,
             // Without the bookkeeping the engine works out again from the position (who is trapped,
@@ -4275,6 +4581,44 @@ impl Follower {
             speeds: self.speeds,
             counts: Some(self.counts_now(&b)),
         })
+    }
+
+    /// What this side cannot tell at this decision (D89, D94), for [`Follower::game_state`]: each
+    /// [`Untold`] by side and the battle's team index. `moving`: at a move request, whose moves say
+    /// whether its own Pokémon is still locked into a rampage.
+    fn untold(&self, moving: bool) -> Vec<Untold> {
+        let mut out = Vec::new();
+        for side in 0..2 {
+            for idx in 0..MAX_TEAM {
+                if self.rampage[side][idx] != NO_MOVE
+                    && self.rampage_turns[side][idx] == 2
+                    && self.rampage_silent[side][idx]
+                    && !(side == self.side && moving)
+                {
+                    out.push(Untold::Rampage { side: side as u8, team_index: idx as u8 });
+                }
+            }
+        }
+        for &(entry, mv, payments) in &self.pressure_doubt {
+            out.push(Untold::PressurePp {
+                side: (1 - self.side) as u8,
+                team_index: entry as u8,
+                move_id: MOVES[mv as usize].id.to_string(),
+                payments,
+                pp: 0,
+            });
+        }
+        for pos in
+            (0..ACTIVE).filter(|&pos| self.spots[1 - self.side][pos].stats_shared && self.present(1 - self.side, pos))
+        {
+            let idx = self.mon_ref(1 - self.side, pos).idx;
+            out.push(Untold::StatsShared { side: (1 - self.side) as u8, team_index: idx });
+        }
+        for idx in (0..MAX_TEAM).filter(|&idx| self.encore_doubt[idx]) {
+            // (Showdown drew one of the two standing on the other side: its places are 1 and 2.)
+            out.push(Untold::EncoreTarget { side: self.side as u8, team_index: idx as u8, locs: vec![1, 2] });
+        }
+        out
     }
 
     /// Completes the rebuilt battle for [`Follower::game_state`]. `sheets`: the other side's six.
@@ -4372,7 +4716,11 @@ impl Follower {
             m.hp = hp;
             // Its ability: as shown, or its Mega's, or its sheet's.
             let own = if is_mega(m.species) { SPECIES[m.species as usize].ability0 } else { set.ability };
-            m.ability = if rec.ability != UNKNOWN { rec.ability } else { own };
+            // (Since a Skill Swap with its partner, which names neither ability: the one worked out then.)
+            let swapped = (m.is_active && (m.position as usize) < ACTIVE)
+                .then(|| self.spots[opp][m.position as usize].their_ability)
+                .flatten();
+            m.ability = if rec.ability != UNKNOWN { rec.ability } else { swapped.unwrap_or(own) };
             m.base_ability = if rec.base_ability != UNKNOWN { rec.base_ability } else { own };
             m.item = match rec.item {
                 ItemShown::Holds(item) => item,
@@ -4466,7 +4814,7 @@ impl Follower {
                     (m.times_attacked, m.was_attacked) = (spot.hits, spot.attacked);
                     m.last_attack_damage = spot.last_damage;
                     m.n_damaged_by = 0;
-                    for &(by, slot, damage) in spot.damaged_by.iter().take(MAX_TEAM) {
+                    for &(by, slot, damage, _) in spot.damaged_by.iter().take(MAX_TEAM) {
                         let k = m.n_damaged_by as usize;
                         m.damaged_by[k] = DamagedBy { idx: by as u8, slot: slot as u8, damage, this_turn: !moving };
                         m.n_damaged_by += 1;
@@ -4688,7 +5036,7 @@ impl Follower {
         }
         let a = b.resolve_move(begun.r, chosen, 0);
         // A Quick Claw is rolled for, and says so when it works; what always holds a move back does not.
-        Some(if begun.quick && begun.overridden.is_none_or(|t| t > at) { 1 } else { a.frac.min(0) })
+        Some(if begun.quick_at(at) { 1 } else { a.frac.min(0) })
     }
 
     /// A move as it stood in the queue when the `at`th of this stretch began.
@@ -4698,7 +5046,7 @@ impl Follower {
             r: s.r,
             order: 200,
             priority: 0,
-            frac: (s.quick && s.overridden.is_none_or(|t| t > at)) as i8,
+            frac: s.quick_at(at) as i8,
             speed: 0,
             move_id: if s.named == NO_MOVE { 0 } else { s.named },
             encored: s.encored,

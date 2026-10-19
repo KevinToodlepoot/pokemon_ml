@@ -1052,11 +1052,16 @@ impl PySearch {
 /// not, or `None`), `hidden_disable` (the side is barred by something it was not shown, where
 /// followcheck compares nothing) and `unsaid` (what this side has not been told and its export may
 /// therefore have otherwise, D89: a list of dicts with `kind`, `side`, `species` and, for PP, `move`).
-/// Raises if the battle cannot be followed, or if its recorded state is not the game's.
+/// Raises if the battle cannot be followed, or if its recorded state is not the game's; a battle
+/// with a team that has a species twice raises `ValueError("unsupported: a team with a species
+/// twice")` before anything is followed, as `check_export` passes it over.
 #[pyfunction]
 fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'py, PyDict>>> {
     let c: crate::replay::FollowCase =
         serde_json::from_str(case).map_err(|e| PyValueError::new_err(format!("unreadable recording: {e}")))?;
+    if crate::replay::species_twice(&c) {
+        return Err(PyValueError::new_err(format!("unsupported: {}", crate::replay::SPECIES_TWICE)));
+    }
     type Row = (usize, usize, Option<&'static str>, String, Result<String, String>, bool, Vec<crate::replay::Unsaid>);
     let mut rows: Vec<Row> = Vec::new();
     let mut unsaid = crate::replay::UnsaidTracker::default();

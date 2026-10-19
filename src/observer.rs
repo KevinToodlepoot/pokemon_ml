@@ -182,7 +182,7 @@ pub(crate) fn details(s: &str) -> Result<(u16, Gender), String> {
 }
 
 /// `73/100 par`, `50/100y`, `0 fnt` to HP, bar, status and whether it has fainted.
-fn condition(s: &str) -> Result<(u8, Bar, Status, bool), String> {
+pub(crate) fn condition(s: &str) -> Result<(u8, Bar, Status, bool), String> {
     let (hp, status) = s.split_once(' ').unwrap_or((s, ""));
     if status == "fnt" {
         return Ok((0, Bar::Red, Status::None, true));

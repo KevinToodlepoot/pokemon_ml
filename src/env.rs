@@ -170,6 +170,48 @@ impl Counts {
     }
 }
 
+/// What the player whose position an export is cannot tell (D89, D94), as its follower writes it
+/// beside the battle ([`GameState::untold`]): each entry names a Pokémon by side and team index, as
+/// the battle numbers them, and says what the game may have instead of what the battle shows. A
+/// search from the position draws one reading in every world (`vgcbot.belief`). A game keeps the
+/// list it was given and writes it back out; nothing in the engine reads it, and a step clears it
+/// (what was drawn is then the game's own).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Untold {
+    /// A rampage that may have run out without a word on its second turn (the confusion its end
+    /// brings is taken silently: the holder is already confused, has Own Tempo, stands grounded in
+    /// Misty Terrain). The battle has it locked for one turn more; it may be over.
+    Rampage { side: u8, team_index: u8 },
+    /// PP a move paid to Pressure behind a blanked target (`|move|X|Sucker Punch||[still]`), with a
+    /// Pressure Pokémon and one without where it could have been aimed: `payments` times one PP
+    /// or two. The battle counts one each, and has `pp` left.
+    PressurePp { side: u8, team_index: u8, move_id: String, payments: u8, pp: u8 },
+    /// Where a move of the player's own went after Champions' Encore put it in again with no
+    /// target and the Pokémon Showdown drew fainted first: one of `locs`. The battle has the place
+    /// the log named.
+    EncoreTarget { side: u8, team_index: u8, locs: Vec<i8> },
+    /// Stats the other side's Pokémon split or swapped with its partner (Power Split, Guard Split,
+    /// Speed Swap) this stay: they come from two spreads the player does not know, and a position
+    /// that holds them is refused (as D77 refuses one split with the player's own).
+    StatsShared { side: u8, team_index: u8 },
+}
+
+/// An exact HP the player whose export this is worked out for one of the other side's Pokémon (a
+/// Pain Split or an Endeavor with one of its own, D77), with the percentage and bar (`green`,
+/// `yellow`, `red`) it showed then, which only some max HPs can show: what belief draws its HP
+/// stat points from; `now` if it still has that HP. Kept and cleared as [`Untold`] is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HpSeen {
+    pub side: u8,
+    pub team_index: u8,
+    pub hp: u16,
+    pub pct: u8,
+    pub bar: String,
+    pub now: bool,
+}
+
 /// A [`Game`] written down: the position with everything a game keeps next to
 /// it. The two teams as registered (six a side, with their stat points, which
 /// a [`BattleState`] has only for the Pokémon brought), whether the sheets are
@@ -192,6 +234,12 @@ pub struct GameState {
     pub speeds: Option<Speeds>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<Counts>,
+    /// In an export, what its player cannot tell ([`Untold`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub untold: Vec<Untold>,
+    /// In an export, the other side's exact HP its player has worked out ([`HpSeen`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hp_seen: Vec<HpSeen>,
 }
 
 impl GameState {
@@ -214,6 +262,10 @@ pub struct Game {
     timers: Timers,
     speeds: Speeds,
     counts: Counts,
+    /// What the player whose export this was cannot tell, as given ([`Untold`]), and the HP it worked
+    /// out ([`HpSeen`]); cleared by a step.
+    untold: Vec<Untold>,
+    hp_seen: Vec<HpSeen>,
     /// What the engine noted during the last step, for `speeds` (kept to reuse the space).
     events: Vec<speed::Event>,
 }
@@ -243,6 +295,8 @@ impl Game {
             timers: Timers::default(),
             speeds,
             counts: Counts::default(),
+            untold: Vec::new(),
+            hp_seen: Vec::new(),
             events: Vec::new(),
         })
     }
@@ -262,6 +316,8 @@ impl Game {
                 timers: Some(self.timers.counts(b.turn)),
                 speeds: Some(self.speeds),
                 counts: Some(self.counts),
+                untold: self.untold.clone(),
+                hp_seen: self.hp_seen.clone(),
             },
         }
     }
@@ -302,6 +358,8 @@ impl Game {
         };
         g.speeds.resume(&b);
         g.counts = st.counts.unwrap_or_default();
+        g.untold.clone_from(&st.untold);
+        g.hp_seen.clone_from(&st.hp_seen);
         g.battle = Some(b);
         Ok(g)
     }
@@ -402,6 +460,8 @@ impl Game {
         self.timers.update(&b);
         self.speeds.digest(&self.events, &b);
         self.counts = Counts::default();
+        self.untold.clear();
+        self.hp_seen.clear();
         self.battle = Some(b);
         Ok(())
     }
@@ -414,6 +474,8 @@ impl Game {
         self.timers.update(b);
         self.speeds.digest(&self.events, b);
         self.counts.update(&before, b);
+        self.untold.clear();
+        self.hp_seen.clear();
         Ok(())
     }
 

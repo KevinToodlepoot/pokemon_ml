@@ -54,12 +54,32 @@ fn the_state_is_held_to_showdowns_at_every_step() {
             Outcome::Unsupported(why) => panic!("battle {}: {why}", case.id),
             Outcome::Fail(why) => panic!("battle {}: {}", case.id, why.join("; ")),
         }
-        // The same battle without its states is followed as before.
-        let plain: FollowCase = serde_json::from_str(line).unwrap();
-        assert_eq!(plain.states(), 0);
-        assert!(matches!(walk_follow(&plain, &mut |_, _, _| Ok(())), Outcome::Pass(_)));
+        // The oracle's own form, the snapshot written flat on each point, carries the same states.
+        let flat: FollowCase = serde_json::from_str(line).unwrap();
+        assert!(flat.has_every_state() && flat.states() == case.states());
+        assert!(matches!(walk_follow(&flat, &mut |_, _, _| Ok(())), Outcome::Pass(_)));
+        // Slimmed to what the follower reads, it has none, and is followed as before.
+        let slim: FollowCase = serde_json::from_str(&serde_json::to_string(&flat).unwrap()).unwrap();
+        assert_eq!(slim.states(), 0);
+        assert!(matches!(walk_follow(&slim, &mut |_, _, _| Ok(())), Outcome::Pass(_)));
     }
     assert!(compared > 50, "{compared} states compared");
+    // An edit to the flat form is caught as one to the nested form is.
+    let mut v: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    let hp = &mut v["steps"][3]["after"]["sides"][0]["mons"][0]["hp"];
+    *hp = serde_json::json!(hp.as_u64().unwrap() + 1);
+    let case: FollowCase = serde_json::from_value(v).unwrap();
+    match walk_follow(&case, &mut |_, _, _| Ok(())) {
+        Outcome::Fail(why) => {
+            assert!(why[0].contains("step 4: the state differs") && why[0].contains(" hp: "), "{why:?}")
+        }
+        _ => panic!("an edited flat state was not caught"),
+    }
+    // A point without its log is refused by name.
+    let mut v: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    v["steps"][1]["after"].as_object_mut().unwrap().remove("log");
+    let err = serde_json::from_value::<FollowCase>(v).unwrap_err().to_string();
+    assert!(err.contains("missing field `log`"), "{err}");
 
     let edited = |path: &[&str], change: &dyn Fn(&serde_json::Value) -> serde_json::Value| -> Vec<String> {
         let mut v = with_state(text.lines().next().unwrap());
@@ -89,9 +109,10 @@ fn the_state_is_held_to_showdowns_at_every_step() {
     let last = text.lines().next().map(|l| serde_json::from_str::<FollowCase>(l).unwrap().steps.len()).unwrap();
     let why = edited(&["steps", &(last - 1).to_string(), "after", "state", "turn"], &plus_one);
     assert!(why[0].contains(&format!("step {last}: the state differs")) && why[0].contains("turn"), "{why:?}");
-    // A point without its state: not every one carries it.
+    // A point without its state (nested or flat, only what a follower reads): not every one carries it.
     let mut v = with_state(text.lines().next().unwrap());
-    v["steps"][2]["after"].as_object_mut().unwrap().remove("state");
+    let after = &mut v["steps"][2]["after"];
+    *after = serde_json::json!({"ended": after["ended"], "log": after["log"], "requests": after["requests"]});
     let case: FollowCase = serde_json::from_value(v).unwrap();
     assert!(!case.has_every_state() && case.states() == case.steps.len());
 }
@@ -257,6 +278,11 @@ fn what_the_state_gates_first_run_found_the_export_getting_wrong_is_right() {
     assert!(wrong.is_empty(), "{wrong:#?}");
     // The silent rampage ends in the fixture are recognised as such (D89), not missed.
     assert!(tally.unsaid.get("rampage_ended").is_some_and(|&n| n >= 3), "{:?}", tally.unsaid);
+    // And each export lists what its player cannot tell, every case of it (D94).
+    assert_eq!(tally.untold_missing, 0, "{:#?}", tally.first);
+    for kind in ["rampage", "pressure_pp", "encore_target"] {
+        assert!(tally.untold.get(kind).is_some_and(|&n| n > 0), "{kind}: {:?}", tally.untold);
+    }
 }
 
 /// What no player is told is recognised from the game's history (D89), each kind in a battle that
@@ -730,6 +756,9 @@ fn what_the_new_pin_and_random_play_found_the_follower_getting_wrong_is_right() 
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+    // Each silent end is in the export's own list of what its player cannot tell (D94).
+    assert_eq!(exports.untold_missing, 0, "{:#?}", exports.first);
+    assert!(exports.untold.get("rampage").is_some_and(|&n| n >= 5), "{:?}", exports.untold);
     // The Own Tempo Emboar's and the confused Annihilape's: each is followed by a replacement request
     // (a wait for the side that does not replace), so neither side is told, its own included.
     for (id, species) in [(801, "emboar"), (1970, "annihilape")] {
@@ -737,6 +766,65 @@ fn what_the_new_pin_and_random_play_found_the_follower_getting_wrong_is_right() 
         own.sort();
         assert_eq!(own, [false, true], "battle {id}: {silent:?}");
     }
+}
+
+/// What the themed batches and random play found the follower getting wrong (S3b.6b), each in the
+/// battle that showed it (Dex sets from `gen_cases`; the battle's name says which), recorded again to
+/// just past it with Showdown's state at every point: a binding Baton Pass hands on, the other side's
+/// Skill Swap between partners (which names no ability), a Quick Claw rolled again for the move
+/// Champions' Encore put in, Gastro Acid on an Early Bird, a rampage Copycat began; and what the export
+/// adds: an exact HP a Pain Split tells (with what it says of the max HP), stats two of the other side's
+/// split, which no spread this side can draw gives, and an Endeavor's exact HP, which goes with a
+/// disguise when it drops and is told by the Endeavor's own hit only.
+#[test]
+fn what_the_themed_batches_and_random_play_found_the_follower_getting_wrong_is_right() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    let (mut tally, mut exports) = (FollowTally::default(), ExportTally::default());
+    let text = include_str!("fixtures/themed_export_regressions.jsonl");
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        assert!(case.has_every_state(), "battle {}", case.id);
+        for outcome in [check_follow(&case, &mut tally), check_export(&case, &mut exports)] {
+            match outcome {
+                Outcome::Pass(_) => {}
+                Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+                Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+    }
+    assert_eq!(text.lines().count(), 9);
+    assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+    assert_eq!((exports.untold_missing, exports.hp_seen_wrong), (0, 0), "{:#?}", exports.first);
+    assert!(exports.hp_seen > 0, "the Pain Split's HP is worked out");
+    assert!(exports.untold.get("stats_shared").is_some_and(|&n| n > 0), "{:?}", exports.untold);
+}
+
+/// What an export adds beside the battle (D94, D77) is kept by a game taken up from it, written back
+/// out, and gone after a step, when what was drawn from it is the game's own.
+#[test]
+fn what_an_export_adds_is_kept_until_a_step() {
+    use vgc_engine::env::{Game, GameState, HpSeen, Untold};
+    let case: FollowCase =
+        serde_json::from_str(include_str!("fixtures/themed_export_regressions.jsonl").lines().nth(5).unwrap()).unwrap();
+    let mut exported = None;
+    walk_follow(&case, &mut |game, followers, _| {
+        if exported.is_none() && game.phase() == vgc_engine::obs::Phase::Move {
+            exported = followers[0].game_state().ok();
+        }
+        Ok(())
+    });
+    let mut st: GameState = exported.expect("an export at a move request");
+    st.untold.push(Untold::Rampage { side: 1, team_index: 0 });
+    st.hp_seen.push(HpSeen { side: 1, team_index: 0, hp: 50, pct: 40, bar: "yellow".into(), now: false });
+    let mut g = Game::from_state(&st).unwrap();
+    let back = g.to_state();
+    assert_eq!((back.untold.clone(), back.hp_seen.clone()), (st.untold.clone(), st.hp_seen.clone()));
+    let (a, b) = (g.legal(0)[0], g.legal(1)[0]);
+    g.act([a, b], [0; 4]).unwrap();
+    let after = g.to_state();
+    assert!(after.untold.is_empty() && after.hp_seen.is_empty());
 }
 
 /// The counts no other recording reaches (S3b.6): Lock-On's, Syrup Bomb's and Future Sight's, in

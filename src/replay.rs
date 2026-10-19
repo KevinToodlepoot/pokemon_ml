@@ -1185,6 +1185,10 @@ pub struct FollowTally {
     pub wrong_choices: usize,
     /// The first difference of each battle that has one.
     pub first_wrong: Vec<String>,
+    /// Every difference, feature by feature, where `keep_all` asks for them (to sort them into
+    /// classes; a battle's first alone hides what else differed with it).
+    pub keep_all: bool,
+    pub every_wrong: Vec<String>,
     /// By feature: how often it differed, and one place it did.
     pub by_feature: std::collections::BTreeMap<String, (usize, String)>,
     /// Observations passed over: a move was disabled by something the player has not
@@ -1388,16 +1392,43 @@ pub fn hidden_disable(game: &crate::env::Game, side: usize) -> bool {
 /// What a recorded battle told its players at one decision: the log up to it
 /// and the request each side was sent; and, where the recorder took it,
 /// Showdown's whole state there, which [`walk_follow`] holds the game to.
-#[derive(Deserialize, serde::Serialize, Clone, Debug)]
+///
+/// The harness's recorder puts the state under `state`; `gen_cases.js` writes it flat, the
+/// point being the snapshot with the log and requests beside its fields. Either is read.
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct Told {
-    #[serde(default)]
     pub ended: bool,
     pub log: Vec<String>,
     pub requests: Vec<serde_json::Value>,
     /// Showdown's state at this point (`oracle/snapshot.js`), if recorded. Not written back
     /// out: a battle slimmed for the follower keeps only what the follower reads.
-    #[serde(default, skip_serializing)]
+    #[serde(skip_serializing)]
     pub state: Option<Snap>,
+}
+
+impl<'de> Deserialize<'de> for Told {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let mut v = serde_json::Value::deserialize(d)?;
+        let obj = v.as_object_mut().ok_or_else(|| D::Error::custom("a recorded point must be an object"))?;
+        let mut take = |key: &'static str| obj.remove(key).ok_or_else(|| D::Error::missing_field(key));
+        let log: Vec<String> = serde_json::from_value(take("log")?).map_err(D::Error::custom)?;
+        let requests: Vec<serde_json::Value> = serde_json::from_value(take("requests")?).map_err(D::Error::custom)?;
+        let ended = match obj.get("ended") {
+            None => false,
+            Some(e) => e.as_bool().ok_or_else(|| D::Error::custom("`ended` must be true or false"))?,
+        };
+        let state = match obj.remove("state") {
+            Some(s) => Some(serde_json::from_value(s).map_err(D::Error::custom)?),
+            // gen_cases' flat form: what is left of the point is the snapshot (its draws are not state).
+            None if obj.contains_key("sides") => {
+                obj.remove("draws");
+                Some(serde_json::from_value(v).map_err(D::Error::custom)?)
+            }
+            None => None,
+        };
+        Ok(Told { ended, log, requests, state })
+    }
 }
 
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
@@ -1488,10 +1519,13 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
             }
             let at = format!("battle {} step {step} side {side}", c.id);
             let mut wrong = false;
-            let verbose = tally.verbose;
+            let (verbose, keep_all) = (tally.verbose, tally.keep_all);
             let mut note = |name: String, a: String, b: String| {
                 if verbose {
                     println!("{at}: {name}: the game has {a}, the follower {b}");
+                }
+                if keep_all {
+                    tally.every_wrong.push(format!("{at}: {name}: the game has {a}, the follower {b}"));
                 }
                 if !differed {
                     differed = true;
@@ -1566,6 +1600,15 @@ impl Unsaid {
     }
 }
 
+/// The side a case of [`Unsaid`] is about.
+fn u_side(u: &Unsaid) -> usize {
+    match u {
+        Unsaid::RampageEnded { side, .. } | Unsaid::EncoreTarget { side, .. } | Unsaid::PressurePp { side, .. } => {
+            *side
+        }
+    }
+}
+
 /// Keeps, decision by decision along a recorded battle, what each side has not been told
 /// ([`Unsaid`]): [`UnsaidTracker::step`] after each step, with the game as it now is and the step's
 /// log; [`UnsaidTracker::for_viewer`] then lists what applies at this decision to one side's view.
@@ -1574,6 +1617,9 @@ pub struct UnsaidTracker {
     /// The game's rampages at the last decision, by side and position: (team index, the turns its
     /// lock has left, `trueDuration`, if it has one).
     before: [[Option<(u8, Option<i16>)>; crate::state::ACTIVE]; 2],
+    /// Who stood where at the last decision (team index), from which a step's lines are followed:
+    /// a Pokémon that moved may have left again before the step was over.
+    standing: [[Option<u8>; crate::state::ACTIVE]; 2],
     /// (viewer, what it was not told).
     now: Vec<(usize, Unsaid)>,
 }
@@ -1601,14 +1647,38 @@ impl UnsaidTracker {
         let upkept = log.iter().any(|l| l == "|upkeep");
         let lines: Vec<Vec<&str>> = log.iter().map(|l| l.split('|').collect()).collect();
         let moving = game.phase() == crate::obs::Phase::Move;
+        // Who stood at each place as each line was written: from the last decision, through the
+        // step's switches (by the species they name, one a team under the species clause).
+        let mut here = self.standing;
+        let mut who: Vec<[[Option<u8>; ACTIVE]; 2]> = Vec::with_capacity(lines.len());
+        for p in &lines {
+            if matches!(p.get(1), Some(&"switch") | Some(&"drag"))
+                && let Some((s, pos)) = p.get(2).and_then(|w| Self::place(w))
+            {
+                let named = crate::data::to_id(p.get(3).and_then(|d| d.split(',').next()).unwrap_or(""));
+                here[s][pos] = (0..b.sides[s].n).find(|&i| {
+                    let m = b.mon(crate::MonRef { side: s as u8, idx: i });
+                    [m.species, m.set_species, m.base_species].iter().any(|&sp| SPECIES[sp as usize].id == named)
+                });
+            } else if p.get(1) == Some(&"faint")
+                && let Some((s, pos)) = p.get(2).and_then(|w| Self::place(w))
+            {
+                here[s][pos] = None;
+            }
+            who.push(here);
+        }
+        let species_then = |k: usize, s: usize, pos: usize| -> Option<String> {
+            who[k][s][pos]
+                .map(|i| SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id.to_string())
+        };
         self.now.retain(|(viewer, u)| match u {
             // (Its own side sees it free once a move request lists its moves.)
             Unsaid::RampageEnded { side, .. } => !upkept && (viewer != side || !moving),
-            Unsaid::EncoreTarget { side, species: sp } => !lines.iter().any(|p| {
+            Unsaid::EncoreTarget { side, species: sp } => !lines.iter().enumerate().any(|(k, p)| {
                 p.get(1) == Some(&"move")
                     && p.get(2)
                         .and_then(|w| Self::place(w))
-                        .is_some_and(|(s, pos)| s == *side && at(b.active(s, pos)).is_some_and(|r| species(r) == *sp))
+                        .is_some_and(|(s, pos)| s == *side && species_then(k, s, pos).as_ref() == Some(sp))
             }),
             Unsaid::PressurePp { .. } => true,
         });
@@ -1643,8 +1713,12 @@ impl UnsaidTracker {
         }
         for (k, p) in lines.iter().enumerate() {
             let Some((side, pos)) = p.get(2).and_then(|w| Self::place(w)) else { continue };
-            let Some(user) = at(b.active(side, pos)) else { continue };
-            if p.get(1) == Some(&"move") && p.get(4) == Some(&"") && p.contains(&"[still]") {
+            let Some(user) = who[k][side][pos].map(|i| crate::MonRef { side: side as u8, idx: i }) else { continue };
+            let from = p.iter().find_map(|x| x.strip_prefix("[from]")).map(str::trim);
+            // (Only a move that pays PP pays Pressure's: its own, or one another called, which its caller
+            // pays for; not one Magic Bounce sends back, nor a rampage's later turns.)
+            let pays = from.is_none_or(|f| f.starts_with("move: "));
+            if p.get(1) == Some(&"move") && p.get(4) == Some(&"") && p.contains(&"[still]") && pays {
                 // A blanked target: which of the other side's could it have been aimed at, and which have Pressure.
                 let Some(mv) = crate::data::move_id(&crate::data::to_id(p[3])) else { continue };
                 if !matches!(
@@ -1654,11 +1728,24 @@ impl UnsaidTracker {
                     continue;
                 }
                 let foes: Vec<bool> = (0..ACTIVE)
-                    .filter_map(|q| at(b.active(1 - side, q)))
-                    .map(|f| b.mon(f).ability == ab::PRESSURE)
+                    .filter_map(|q| who[k][1 - side][q])
+                    .map(|i| {
+                        // (Read off the Pokémon as the step left it, which may have fainted since: its
+                        // ability, unless Gastro Acid has it suppressed.)
+                        let f = crate::MonRef { side: (1 - side) as u8, idx: i };
+                        b.mon(f).ability == ab::PRESSURE && !b.vols(f).has(VolKind::Gastroacid)
+                    })
                     .collect();
                 if foes.iter().any(|&p| p) && foes.iter().any(|&p| !p) {
-                    let u = Unsaid::PressurePp { side, species: species(user), mv: MOVES[mv as usize].id.to_string() };
+                    // (A move another called, Copycat's say, has its caller pay: `[from] move: Copycat`.)
+                    let caller = p
+                        .iter()
+                        .find_map(|x| x.strip_prefix("[from]"))
+                        .map(str::trim)
+                        .and_then(|f| f.strip_prefix("move: "));
+                    let paying = caller.and_then(|c| crate::data::move_id(&crate::data::to_id(c))).unwrap_or(mv);
+                    let u =
+                        Unsaid::PressurePp { side, species: species(user), mv: MOVES[paying as usize].id.to_string() };
                     if !self.now.iter().any(|(v, x)| *v == 1 - side && *x == u) {
                         self.now.push((1 - side, u));
                     }
@@ -1685,7 +1772,14 @@ impl UnsaidTracker {
                 let fell = lines[k..k + m]
                     .iter()
                     .any(|q| q.get(1) == Some(&"faint") && q.get(2).is_some_and(|w| w.starts_with(other)));
-                if single && fell {
+                // (Only where the draw went to the one that fell: then the place the game keeps is not the
+                // one the log names. An Encore onto the move already chosen draws nothing.)
+                let named = line.get(4).and_then(|w| Self::place(w)).map(|(s, q)| {
+                    let loc = q as i8 + 1;
+                    if s == side { -loc } else { loc }
+                });
+                let kept = b.mon(user).last_move_loc;
+                if single && fell && named.is_some_and(|loc| loc != kept) {
                     self.now.push((side, Unsaid::EncoreTarget { side, species: species(user) }));
                 }
             }
@@ -1694,6 +1788,7 @@ impl UnsaidTracker {
             for pos in 0..ACTIVE {
                 self.before[side][pos] =
                     at(b.active(side, pos)).map(|r| (r.idx, b.vols(r).get(VolKind::Lockedmove).map(|c| c.st.a)));
+                self.standing[side][pos] = at(b.active(side, pos)).map(|r| r.idx);
             }
         }
     }
@@ -1710,12 +1805,14 @@ impl UnsaidTracker {
 }
 
 /// What [`check_export`] found over recorded battles.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct ExportTally {
     /// Decisions at which a follower's [`game_state`](crate::follow::Follower::game_state) was asked for.
     pub asked: usize,
     /// Exports refused, by reason.
     pub refused: std::collections::BTreeMap<String, usize>,
+    /// Battles whose exports were not checked, by reason (a team with a species twice).
+    pub unsupported: std::collections::BTreeMap<String, usize>,
     /// Exports that did not load, or whose game could not list a side's choices.
     pub broken: usize,
     /// Exports that observe differently from the follower that made them.
@@ -1724,10 +1821,54 @@ pub struct ExportTally {
     pub counts_differ: usize,
     /// Exports where the other side's HP percentage or bar colour is not what the follower was shown.
     pub hp_bar_differ: usize,
-    /// Exports that differ from the game only where the player is not told (D89), by kind: counted,
-    /// not failed.
+    /// Decisions at which the player was not told something (D89), by kind: counted, not failed.
     pub unsaid: std::collections::BTreeMap<String, usize>,
+    /// The export's own list of what its player cannot tell ([`crate::env::Untold`], D94), by kind.
+    pub untold: std::collections::BTreeMap<String, usize>,
+    /// Exports that leave out something the game's history shows their player was not told: each
+    /// such case must be in the export's list (D94). Failed.
+    pub untold_missing: usize,
+    /// Exact HP the export has worked out ([`crate::env::HpSeen`]), and those the game says are wrong:
+    /// a percentage and bar its true max HP cannot show, or an HP it no longer has though marked `now`.
+    pub hp_seen: usize,
+    pub hp_seen_wrong: usize,
+    /// Notes on what was wrong, the first `keep` of them.
     pub first: Vec<String>,
+    pub keep: usize,
+}
+
+impl Default for ExportTally {
+    fn default() -> Self {
+        ExportTally {
+            asked: 0,
+            refused: Default::default(),
+            unsupported: Default::default(),
+            broken: 0,
+            observed_differently: 0,
+            counts_differ: 0,
+            hp_bar_differ: 0,
+            unsaid: Default::default(),
+            untold: Default::default(),
+            untold_missing: 0,
+            hp_seen: 0,
+            hp_seen_wrong: 0,
+            first: Vec::new(),
+            keep: 20,
+        }
+    }
+}
+
+/// Why a battle with a team that has a species twice is not checked through the follower's export.
+pub const SPECIES_TWICE: &str = "a team with a species twice";
+
+/// Whether a team has a species twice (which no regulation allows, and the harness will not
+/// follow; `gen_cases.js` makes such teams on purpose): the other side's Pokémon cannot be told
+/// apart by their sheets, so there is no export, and no belief root, to check.
+pub fn species_twice(c: &FollowCase) -> bool {
+    c.rosters.iter().any(|team| {
+        let species: Vec<&str> = team.iter().map(|s| s.species.as_str()).collect();
+        species.iter().enumerate().any(|(k, a)| species[..k].contains(a))
+    })
 }
 
 /// Follows a recorded battle as [`check_follow`] does and, at every decision of
@@ -1739,14 +1880,9 @@ pub struct ExportTally {
 pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
     use crate::env::{Game, OBS_M};
     use crate::obs::{OBS_F, OBS_I};
-    // A team with a species twice (which no ladder allows, and the harness will not follow): the
-    // other side's Pokémon cannot be told apart by their sheets, so there is no export to check.
-    let twice = c.rosters.iter().any(|team| {
-        let species: Vec<&str> = team.iter().map(|s| s.species.as_str()).collect();
-        species.iter().enumerate().any(|(k, a)| species[..k].contains(a))
-    });
-    if twice {
-        return Outcome::Unsupported("a team with a species twice".into());
+    if species_twice(c) {
+        *tally.unsupported.entry(SPECIES_TWICE.into()).or_insert(0) += 1;
+        return Outcome::Unsupported(SPECIES_TWICE.into());
     }
     let mut unsaid = UnsaidTracker::default();
     let mut visit = |game: &Game, followers: &[crate::follow::Follower; 2], step: usize| -> Result<(), String> {
@@ -1761,7 +1897,7 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
             tally.asked += 1;
             let at = format!("battle {} step {step} side {side}", c.id);
             let note = |tally: &mut ExportTally, what: String| {
-                if tally.first.len() < 20 {
+                if tally.first.len() < tally.keep {
                     tally.first.push(format!("{at}: {what}"));
                 }
             };
@@ -1772,6 +1908,18 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     continue;
                 }
             };
+            for u in unsaid.for_viewer(side) {
+                *tally.unsaid.entry(u.kind().into()).or_insert(0) += 1;
+            }
+            for e in &st.untold {
+                let kind = match e {
+                    crate::env::Untold::Rampage { .. } => "rampage",
+                    crate::env::Untold::PressurePp { .. } => "pressure_pp",
+                    crate::env::Untold::EncoreTarget { .. } => "encore_target",
+                    crate::env::Untold::StatsShared { .. } => "stats_shared",
+                };
+                *tally.untold.entry(kind.into()).or_insert(0) += 1;
+            }
             let export = match Game::from_state(&st) {
                 Ok(g) => g,
                 Err(e) => {
@@ -1781,6 +1929,123 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                 }
             };
             let Some(b) = export.battle() else { continue };
+            // Every case of what its player was not told (the game's history knows them) is in the
+            // export's own list, for the Pokémon it is about (D94).
+            let species_at = |s: u8, idx: u8| -> Option<&'static str> {
+                ((idx as usize) < b.sides[s as usize].n as usize)
+                    .then(|| SPECIES[b.mon(crate::MonRef { side: s, idx }).set_species as usize].id)
+            };
+            for u in unsaid.for_viewer(side) {
+                use crate::env::Untold;
+                // (A rampage the export has over already, as one stopped by a Protect is, hides nothing.)
+                let locked = |sp: &str| {
+                    (0..b.sides[u_side(&u)].n).any(|i| {
+                        let r = crate::MonRef { side: u_side(&u) as u8, idx: i };
+                        SPECIES[b.mon(r).set_species as usize].id == sp && b.vols(r).has(VolKind::Lockedmove)
+                    })
+                };
+                // (Nor PP the export counts as the game does: then no payment to Pressure is hidden here.)
+                let pp_of = |battle: &Battle, sp: &str, mv: &str| -> Option<u8> {
+                    let side = u_side(&u);
+                    (0..battle.sides[side].n).find_map(|i| {
+                        let m = battle.mon(crate::MonRef { side: side as u8, idx: i });
+                        (SPECIES[m.set_species as usize].id == sp)
+                            .then(|| {
+                                m.moves[..m.n_moves as usize]
+                                    .iter()
+                                    .find(|s| MOVES[s.id as usize].id == mv)
+                                    .map(|s| s.pp)
+                            })
+                            .flatten()
+                    })
+                };
+                let moot = match &u {
+                    Unsaid::RampageEnded { species, .. } => !locked(species),
+                    Unsaid::PressurePp { species, mv, .. } => {
+                        game.battle().is_some_and(|truth| pp_of(truth, species, mv) == pp_of(b, species, mv))
+                    }
+                    // (Nor a target the export keeps as the game does: the move chosen was the one held to.)
+                    Unsaid::EncoreTarget { species, .. } => {
+                        let loc_of = |battle: &Battle| {
+                            let side = u_side(&u);
+                            (0..battle.sides[side].n).find_map(|i| {
+                                let m = battle.mon(crate::MonRef { side: side as u8, idx: i });
+                                (SPECIES[m.set_species as usize].id == species.as_str()).then_some(m.last_move_loc)
+                            })
+                        };
+                        // (or on one off the field, fainted or benched: nothing reads it until it moves again)
+                        let off = |battle: &Battle| {
+                            let side = u_side(&u);
+                            (0..battle.sides[side].n).any(|i| {
+                                let m = battle.mon(crate::MonRef { side: side as u8, idx: i });
+                                SPECIES[m.set_species as usize].id == species.as_str() && (m.fainted || !m.is_active)
+                            })
+                        };
+                        game.battle().is_some_and(|truth| off(truth) || loc_of(truth) == loc_of(b))
+                    }
+                };
+                let covered = moot
+                    || st.untold.iter().any(|e| match (&u, e) {
+                        (Unsaid::RampageEnded { side: s, species }, Untold::Rampage { side: t, team_index })
+                        | (
+                            Unsaid::EncoreTarget { side: s, species },
+                            Untold::EncoreTarget { side: t, team_index, .. },
+                        ) => *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()),
+                        (
+                            Unsaid::PressurePp { side: s, species, mv },
+                            Untold::PressurePp { side: t, team_index, move_id, .. },
+                        ) => {
+                            *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()) && mv == move_id
+                        }
+                        _ => false,
+                    });
+                if !covered {
+                    tally.untold_missing += 1;
+                    note(
+                        tally,
+                        format!(
+                            "not told {} of side {}, but the export does not list it",
+                            u.kind(),
+                            match &u {
+                                Unsaid::RampageEnded { side, .. }
+                                | Unsaid::EncoreTarget { side, .. }
+                                | Unsaid::PressurePp { side, .. } => side,
+                            }
+                        ),
+                    );
+                }
+            }
+            // Every exact HP the export has worked out is the game's (D77).
+            if let Some(truth) = game.battle() {
+                for e in &st.hp_seen {
+                    tally.hp_seen += 1;
+                    let Some(sp) = species_at(e.side, e.team_index) else { continue };
+                    let side = e.side as usize;
+                    let Some(m) = (0..truth.sides[side].n)
+                        .map(|i| truth.mon(crate::MonRef { side: e.side, idx: i }))
+                        .find(|m| SPECIES[m.set_species as usize].id == sp)
+                    else {
+                        continue;
+                    };
+                    let (pct, bar) = crate::shown::hp_shown(e.hp, m.max_hp());
+                    let shows = pct == e.pct && format!("{bar:?}").to_lowercase() == e.bar;
+                    if !shows || (e.now && m.hp != e.hp) {
+                        tally.hp_seen_wrong += 1;
+                        note(
+                            tally,
+                            format!(
+                                "HP seen of side {side} {sp}: {} at {}% {} (now {}), the game's {}/{}",
+                                e.hp,
+                                e.pct,
+                                e.bar,
+                                e.now,
+                                m.hp,
+                                m.max_hp()
+                            ),
+                        );
+                    }
+                }
+            }
             let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (export.legal(0), export.legal(1))));
             if listed.is_err() {
                 tally.broken += 1;
@@ -1848,9 +2113,7 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     let unsaid_rampage = unsaid.for_viewer(side).iter().any(
                         |u| matches!(u, Unsaid::RampageEnded { side: us, species: sp } if *us == s && sp == species),
                     );
-                    if a != z && unsaid_rampage && [a[0], a[1], a[3]] == [z[0], z[1], z[3]] {
-                        *tally.unsaid.entry("rampage_ended".into()).or_insert(0) += 1;
-                    } else if a != z {
+                    if a != z && !(unsaid_rampage && [a[0], a[1], a[3]] == [z[0], z[1], z[3]]) {
                         differ = true;
                         note(tally, format!("counts of side {s} #{idx}: the follower's {a:?}, the game's {z:?}"));
                     }

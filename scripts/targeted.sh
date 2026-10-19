@@ -9,6 +9,9 @@
 #   SHOWN=1 scripts/targeted.sh [dir]      also record Showdown's log, with open team sheets, and check what
 #                                          each side has been shown against it, with the sheets open and as
 #                                          if they had stayed closed (files are about fifty times larger)
+#   LOGS=1 scripts/targeted.sh [dir]       also record Showdown's log and requests, with open team sheets: the
+#                                          battles are the same, and the files can be followed
+#                                          (target/release/followcheck --export --require-state)
 #   DIFFTEST_ARGS=--strict scripts/targeted.sh   pass arguments to every replay (--strict: an unsupported
 #                                          battle fails too)
 #   PS_DIR=/path/to/pokemon-showdown       a built Showdown other than oracle/pokemon-showdown (as lib.js takes it)
@@ -107,7 +110,8 @@ EOF
 record() {
   IFS='|' read -r name n seed args <<<"$1"
   # shellcheck disable=SC2086
-  node oracle/gen_cases.js --n "$n" --seed "$seed" $args ${SHOWN:+--log --open-sheets} --out "$2/$name.jsonl" >"$2/$name.gen.log" 2>&1 ||
+  node oracle/gen_cases.js --n "$n" --seed "$seed" $args ${SHOWN:+--log --open-sheets} ${LOGS:+--log --requests --open-sheets} \
+    --out "$2/$name.jsonl" >"$2/$name.gen.log" 2>&1 ||
     { echo "$name: recording failed: $(grep -m 1 '^Error' "$2/$name.gen.log" || tail -n 1 "$2/$name.gen.log")" >&2; exit 255; }
 }
 export -f record
