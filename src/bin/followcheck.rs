@@ -1,17 +1,22 @@
 //! Checks the log follower against recorded Showdown battles.
 //!
 //!     followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json] [--export]
+//!                                [--require-state]
 //!
 //! The battles must have been recorded with their logs and requests
 //! (`oracle/gen_cases.js --log --requests`). Each is played in the
 //! simulator, and beside it a follower for each side reads what Showdown
 //! sent that side. Printed: how many observations were compared, how many
-//! differed, and which features differed how often.
+//! differed, and which features differed how often. Where a recording
+//! carries Showdown's state at each point (`oracle/snapshot.js`), the
+//! game's state must equal it at the start and after every step (D74);
+//! `--require-state` fails a battle recorded without it at every step.
 //!
 //! `--export` also takes each follower's `game_state` at every decision
 //! (`replay::check_export`): it must load, list both sides' choices and
-//! observe as its follower does; its counts of hidden-length effects are
-//! compared with the game's, and refusals are counted by reason.
+//! observe as its follower does, show the other side's HP and bar as the
+//! follower was shown them, and count the hidden-length effects as the game
+//! does; refusals are counted by reason. Any export that does otherwise fails.
 
 use std::io::{BufRead, BufReader};
 
@@ -26,6 +31,7 @@ fn main() {
     let mut records = Vec::new();
     let mut list = false;
     let mut export = None;
+    let mut require_state = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--limit" {
@@ -38,6 +44,9 @@ fn main() {
             slim = Some(std::fs::File::create(&path).unwrap_or_else(|e| panic!("cannot write {path}: {e}")));
         } else if arg == "--export" {
             export = Some(ExportTally::default());
+        } else if arg == "--require-state" {
+            // Every point of every battle must carry Showdown's state, so that all of it is compared.
+            require_state = true;
         } else if arg == "--list" {
             // The first difference of every battle that has one.
             list = true;
@@ -50,12 +59,15 @@ fn main() {
     }
     if files.is_empty() {
         eprintln!(
-            "usage: followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] [--report OUT.json]"
+            "usage: followcheck CASES.jsonl... [--limit N] [--battle ID] [--list] [--slim OUT.jsonl] \
+             [--report OUT.json] [--export] [--require-state]"
         );
         std::process::exit(2);
     }
     let mut tally = FollowTally { verbose: only.is_some(), ..FollowTally::default() };
     let (mut battles, mut decisions, mut skipped, mut failed) = (0, 0, 0, Vec::new());
+    // Points (the start and each step) whose state was compared with Showdown's, in battles followed.
+    let mut states = 0;
     let mut reasons = std::collections::BTreeMap::new();
     'files: for path in &files {
         let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
@@ -76,7 +88,15 @@ fn main() {
                 tally.hidden_disables,
                 tally.first_wrong.len(),
             );
-            let outcome = check_follow(&case, &mut tally);
+            let outcome = if require_state && !case.has_every_state() {
+                Outcome::Fail(vec![format!(
+                    "recorded with Showdown's state at {} of its {} points (--require-state)",
+                    case.states(),
+                    case.steps.len() + 1
+                )])
+            } else {
+                check_follow(&case, &mut tally)
+            };
             if let Some(ex) = export.as_mut()
                 && matches!(outcome, Outcome::Pass(_))
                 && let Outcome::Fail(why) = check_export(&case, ex)
@@ -93,7 +113,7 @@ fn main() {
                     Outcome::Fail(why) => ("failed", 0, why.clone()),
                 };
                 records.push(serde_json::json!({
-                    "id": case.id, "status": status, "decisions": decisions, "errors": errors,
+                    "id": case.id, "status": status, "decisions": decisions, "errors": errors, "states": case.states(),
                     "observations": tally.observations - before.0,
                     "differences": tally.wrong - before.1,
                     "actionable_observations": tally.choices - before.2,
@@ -106,6 +126,7 @@ fn main() {
                 Outcome::Pass(n) => {
                     battles += 1;
                     decisions += n;
+                    states += case.states();
                     if let Some(out) = slim.as_mut() {
                         use std::io::Write;
                         writeln!(out, "{}", serde_json::to_string(&case).expect("a case is serialisable"))
@@ -137,6 +158,8 @@ fn main() {
         100.0 * tally.wrong as f64 / tally.observations.max(1) as f64,
         tally.hidden_disables
     );
+    // (The state is the whole battle's: the points passed over above are compared like every other.)
+    println!("states compared with Showdown's: {states} (every point of every battle followed that carries one)");
     println!(
         "of those, {} are ones the player has a choice to make at: {} differ ({:.3}%)",
         tally.choices,
@@ -160,37 +183,45 @@ fn main() {
             println!("first: {first}");
         }
     }
-    if let Some(path) = report {
-        let output = serde_json::json!({
-            "schema_version": 1, "cases": records,
-            "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
-                "failed": failed.len(), "observations": tally.observations,
-                "differences": tally.wrong, "actionable_differences": tally.wrong_choices,
-                "passed_over": tally.hidden_disables, "counted": tally.counted,
-                "unknown_lines": tally.unknown},
-        });
-        std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
-            .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));
-    }
     let mut bad_export = false;
     if let Some(ex) = &export {
         println!(
             "export: {} decisions asked, {} refused {:?}, {} broken, {} observe differently from their follower, \
-             {} with counts unlike the game's",
+             {} with counts unlike the game's, {} showing the other side's HP or bar otherwise; \
+             not told (D89, counted) {:?}",
             ex.asked,
             ex.refused.values().sum::<usize>(),
             ex.refused,
             ex.broken,
             ex.observed_differently,
-            ex.counts_differ
+            ex.counts_differ,
+            ex.hp_bar_differ,
+            ex.unsaid
         );
-        for first in ex.first.iter().take(10) {
+        for first in ex.first.iter().take(if list { usize::MAX } else { 10 }) {
             println!("  export: {first}");
         }
-        // (An export that observes otherwise than its follower is reported, not failed: the search
-        // chooses only among what the request allows. Measured at S3.3: none on skilled-play
-        // recordings, under 1% on the regression fixtures.)
-        bad_export = ex.broken > 0;
+        // What a search at play starts from must be what its player was told (D74): an export that
+        // observes otherwise than its follower, counts otherwise than the game or shows the other
+        // side's HP otherwise fails, as one that does not load does.
+        bad_export = ex.broken > 0 || ex.observed_differently > 0 || ex.counts_differ > 0 || ex.hp_bar_differ > 0;
+    }
+    if let Some(path) = report {
+        let export = export.as_ref().map(|ex| {
+            serde_json::json!({"asked": ex.asked, "refused": ex.refused, "broken": ex.broken,
+                "observed_differently": ex.observed_differently, "counts_differ": ex.counts_differ,
+                "hp_bar_differ": ex.hp_bar_differ, "unsaid": ex.unsaid, "first": ex.first})
+        });
+        let output = serde_json::json!({
+            "schema_version": 2, "cases": records,
+            "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
+                "failed": failed.len(), "observations": tally.observations,
+                "differences": tally.wrong, "actionable_differences": tally.wrong_choices,
+                "passed_over": tally.hidden_disables, "states": states, "counted": tally.counted,
+                "unknown_lines": tally.unknown, "export": export},
+        });
+        std::fs::write(&path, serde_json::to_vec_pretty(&output).unwrap())
+            .unwrap_or_else(|e| panic!("cannot write report {path}: {e}"));
     }
     if !failed.is_empty() || tally.wrong > 0 || bad_export {
         std::process::exit(1);

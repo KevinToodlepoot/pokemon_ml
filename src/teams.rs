@@ -370,6 +370,11 @@ pub struct Pool {
     pub event: String,
     /// The regulation the teams were checked against, as Showdown's format id.
     pub format: String,
+    /// Which side of a train / held-out split the teams are, where the pool was cut from a larger
+    /// one ("train", "heldout", ...); none for a pool that was never split. A [`crate::env::VecEnv`]
+    /// plays only the side it is told to (`Config::side`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub side: Option<String>,
     pub teams: Vec<PoolTeam>,
 }
 

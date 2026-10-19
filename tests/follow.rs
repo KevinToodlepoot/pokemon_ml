@@ -22,6 +22,284 @@ fn cases() -> Vec<FollowCase> {
     BufReader::new(file).lines().map(|line| serde_json::from_str(&line.unwrap()).expect("a readable battle")).collect()
 }
 
+/// A recording made by the oracle, with Showdown's state at each point (which it writes beside
+/// the log) also nested under `state`, as a harness recorder writes it.
+fn with_state(line: &str) -> serde_json::Value {
+    let mut v: serde_json::Value = serde_json::from_str(line).unwrap();
+    let nest = |told: &mut serde_json::Value| {
+        let mut state = told.clone();
+        for key in ["log", "requests", "draws"] {
+            state.as_object_mut().unwrap().remove(key);
+        }
+        told["state"] = state;
+    };
+    nest(&mut v["initial"]);
+    for step in v["steps"].as_array_mut().unwrap() {
+        nest(&mut step["after"]);
+    }
+    v
+}
+
+/// D74: where a recording carries Showdown's state, the game's must equal it at the start and
+/// after every step, the last included; one field edited anywhere fails the battle, naming it.
+#[test]
+fn the_state_is_held_to_showdowns_at_every_step() {
+    let text = include_str!("fixtures/local_sweep_regressions.jsonl");
+    let mut compared = 0;
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state());
+        match walk_follow(&case, &mut |_, _, _| Ok(())) {
+            Outcome::Pass(_) => compared += case.states(),
+            Outcome::Unsupported(why) => panic!("battle {}: {why}", case.id),
+            Outcome::Fail(why) => panic!("battle {}: {}", case.id, why.join("; ")),
+        }
+        // The same battle without its states is followed as before.
+        let plain: FollowCase = serde_json::from_str(line).unwrap();
+        assert_eq!(plain.states(), 0);
+        assert!(matches!(walk_follow(&plain, &mut |_, _, _| Ok(())), Outcome::Pass(_)));
+    }
+    assert!(compared > 50, "{compared} states compared");
+
+    let edited = |path: &[&str], change: &dyn Fn(&serde_json::Value) -> serde_json::Value| -> Vec<String> {
+        let mut v = with_state(text.lines().next().unwrap());
+        let mut at = &mut v;
+        for key in path {
+            at = match key.parse::<usize>() {
+                Ok(k) => &mut at[k],
+                Err(_) => &mut at[*key],
+            };
+        }
+        *at = change(at);
+        let case: FollowCase = serde_json::from_value(v).unwrap();
+        match walk_follow(&case, &mut |_, _, _| Ok(())) {
+            Outcome::Fail(why) => why,
+            Outcome::Pass(_) => panic!("an edited state was not caught"),
+            Outcome::Unsupported(why) => panic!("{why}"),
+        }
+    };
+    let plus_one = |x: &serde_json::Value| serde_json::json!(x.as_u64().unwrap() + 1);
+    // A Pokémon's HP four steps in.
+    let why = edited(&["steps", "3", "after", "state", "sides", "0", "mons", "0", "hp"], &plus_one);
+    assert!(why[0].contains("step 4: the state differs") && why[0].contains(" hp: "), "{why:?}");
+    // The random number generator's words at the start.
+    let why = edited(&["initial", "state", "rng", "0"], &|x| serde_json::json!((x.as_u64().unwrap() + 1) % 65536));
+    assert!(why[0].contains("at the start: the state differs") && why[0].contains("rng seed"), "{why:?}");
+    // The last step's, where the battle ends.
+    let last = text.lines().next().map(|l| serde_json::from_str::<FollowCase>(l).unwrap().steps.len()).unwrap();
+    let why = edited(&["steps", &(last - 1).to_string(), "after", "state", "turn"], &plus_one);
+    assert!(why[0].contains(&format!("step {last}: the state differs")) && why[0].contains("turn"), "{why:?}");
+    // A point without its state: not every one carries it.
+    let mut v = with_state(text.lines().next().unwrap());
+    v["steps"][2]["after"].as_object_mut().unwrap().remove("state");
+    let case: FollowCase = serde_json::from_value(v).unwrap();
+    assert!(!case.has_every_state() && case.states() == case.steps.len());
+}
+
+/// Every field named on which a follower's export (`game_state`, what a search at play starts
+/// from) and the true game disagree, at every decision of a recorded battle, from both sides, for
+/// each Pokémon on the field (found by the species it was brought as). A field `a.b` compares `b`
+/// of the list or object `a` (`volatiles.id`, `moves.pp`, `types_said.attacked_by`; a condition's
+/// numbers only where they are public); `total_fainted` is the side's. Left out, as the gates
+/// leave them out: what the player is not told (D89, the tracker's `Unsaid`), and what the turn's
+/// end clears before anything reads it at a replacement request (last turn's move result, a Choice
+/// lock whose item has gone).
+fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
+    use vgc_engine::env::Game;
+    use vgc_engine::replay::{Unsaid, UnsaidTracker, hidden_disable};
+    let value = |game: &Game| -> serde_json::Value { serde_json::from_str(&game.to_state().to_json()).unwrap() };
+    let pick = |p: &serde_json::Value, field: &str| -> serde_json::Value {
+        // A condition's numbers are public for a few kinds only (Protect's run, Ally Switch's counter,
+        // Stockpile's layers and stages); the rest are hidden timers, which belief draws.
+        let public = |e: &serde_json::Value, key: &str| {
+            !matches!(key, "value" | "a" | "b")
+                || matches!(e["id"].as_str(), Some("stall" | "allyswitch" | "stockpile"))
+        };
+        match field.split_once('.') {
+            Some((list, key)) if p[list].is_array() => serde_json::Value::Array(
+                p[list].as_array().into_iter().flatten().filter(|e| public(e, key)).map(|e| e[key].clone()).collect(),
+            ),
+            Some((object, key)) => p[object][key].clone(),
+            None => p[field].clone(),
+        }
+    };
+    let mut out = Vec::new();
+    let mut unsaid = UnsaidTracker::default();
+    let outcome = walk_follow(case, &mut |game, followers, step| {
+        match step {
+            0 => unsaid.start(game),
+            k => unsaid.step(game, &case.steps[k - 1].after.log),
+        }
+        let truth = value(game);
+        let switching = truth["battle"]["request"] == "switch";
+        for (side, follower) in followers.iter().enumerate() {
+            if hidden_disable(game, side) || follower.phase().is_none() {
+                continue;
+            }
+            let Ok(st) = follower.game_state() else { continue };
+            let export = value(&Game::from_state(&st).map_err(|e| e.to_string())?);
+            let told = unsaid.for_viewer(side);
+            let mut wrong = |what: String, a: &serde_json::Value, b: &serde_json::Value| {
+                out.push(format!(
+                    "battle {} step {step}, seen by p{}: {what}: the game's {a}, the export's {b}",
+                    case.id,
+                    side + 1
+                ));
+            };
+            for s in 0..2 {
+                if fields.contains(&"total_fainted") {
+                    let (a, b) =
+                        (&truth["battle"]["sides"][s]["total_fainted"], &export["battle"]["sides"][s]["total_fainted"]);
+                    if a != b {
+                        wrong(format!("p{} total_fainted", s + 1), a, b);
+                    }
+                }
+                let theirs = export["battle"]["sides"][s]["pokemon"].as_array().cloned().unwrap_or_default();
+                for p in truth["battle"]["sides"][s]["pokemon"].as_array().into_iter().flatten() {
+                    if p["is_active"] != true {
+                        continue;
+                    }
+                    let Some(q) = theirs.iter().find(|q| q["original_species"] == p["original_species"]) else {
+                        continue;
+                    };
+                    let species = p["original_species"].as_str().unwrap_or("");
+                    let choice = matches!(p["item"].as_str(), Some("choicescarf" | "choiceband" | "choicespecs"));
+                    for &field in fields.iter().filter(|&&f| f != "total_fainted") {
+                        let not_told = told.iter().any(|u| match u {
+                            Unsaid::RampageEnded { side: us, species: sp } => {
+                                *us == s && sp == species && field.starts_with("volatiles")
+                            }
+                            Unsaid::PressurePp { side: us, species: sp, .. } => {
+                                *us == s && sp == species && field == "moves.pp"
+                            }
+                            Unsaid::EncoreTarget { side: us, species: sp } => {
+                                *us == s && sp == species && field == "last_move_target"
+                            }
+                        });
+                        if not_told || (switching && field == "move_last_turn") {
+                            continue;
+                        }
+                        let (mut a, b) = (pick(p, field), pick(q, field));
+                        if switching && !choice && field.starts_with("volatiles") {
+                            // (A Choice lock whose item has gone: dropped at the next request, read by nothing before.)
+                            let kept: Vec<bool> = p["volatiles"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|v| v["id"] != "choicelock")
+                                .collect();
+                            if let serde_json::Value::Array(list) = &mut a {
+                                let mut k = kept.iter();
+                                list.retain(|_| *k.next().unwrap_or(&true));
+                            }
+                        }
+                        // (Berserk's `checkedBerserk`, 1 and unset, are read alike: rootcheck's rule.)
+                        let unset = |v: &serde_json::Value| v.is_null() || *v == 0 || *v == 1;
+                        let berserk = field == "ability_extra.a" && p["ability"] == "berserk" && unset(&a) && unset(&b);
+                        if a != b && !berserk {
+                            wrong(format!("p{} {species} {field}", s + 1), &a, &b);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    });
+    match outcome {
+        Outcome::Pass(_) => {}
+        Outcome::Fail(why) => out.push(format!("battle {}: not followed: {}", case.id, why.join("; "))),
+        Outcome::Unsupported(why) => out.push(format!("battle {}: unsupported: {why}", case.id)),
+    }
+    out
+}
+
+/// What the state gate's first run on skilled play (S3b.6, D74) found the follower's export getting
+/// wrong, each in a battle scripted to reach it (Dex sets, `gen_cases.js --script`; the battle's
+/// name says which): at every decision the export observes as its follower does, counts as the
+/// game does, and has the game's value of every field it was found wrong in; the game is
+/// Showdown's state throughout; and what no player is told (D89) is recognised, not failed.
+#[test]
+fn what_the_state_gates_first_run_found_the_export_getting_wrong_is_right() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    let fields = [
+        "last_item",
+        "ate_berry",
+        "volatiles.id",
+        "volatiles.move_id",
+        "volatiles.a",
+        "volatiles.b",
+        "volatiles.value",
+        "moves.pp",
+        "move_last_turn",
+        "move_this_turn",
+        "was_attacked",
+        "times_attacked",
+        "types_said.attacked_by",
+        "types_said.known",
+        "ability_extra.a",
+        "total_fainted",
+    ];
+    let (mut tally, mut wrong) = (ExportTally::default(), Vec::new());
+    let mut battles = 0;
+    for line in include_str!("fixtures/export_regressions.jsonl").lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state());
+        match check_export(&case, &mut tally) {
+            Outcome::Pass(_) => battles += 1,
+            Outcome::Unsupported(why) => panic!("battle {}: {why}", case.id),
+            Outcome::Fail(why) => panic!("battle {}: {}", case.id, why.join("; ")),
+        }
+        wrong.extend(export_differs(&case, &fields));
+    }
+    assert!(battles >= 43 && tally.asked > 300, "{battles} battles, {} exports", tally.asked);
+    let bad = (tally.broken, tally.observed_differently, tally.counts_differ, tally.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", tally.first);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    // The silent rampage ends in the fixture are recognised as such (D89), not missed.
+    assert!(tally.unsaid.get("rampage_ended").is_some_and(|&n| n >= 3), "{:?}", tally.unsaid);
+}
+
+/// What no player is told is recognised from the game's history (D89), each kind in a battle that
+/// reaches it, by the side that is not told; and a rampage ended with a word is not taken for one.
+#[test]
+fn what_no_player_is_told_is_recognised_exactly() {
+    use vgc_engine::replay::{Unsaid, UnsaidTracker};
+    let mut kinds = std::collections::BTreeMap::<&str, usize>::new();
+    for line in include_str!("fixtures/export_regressions.jsonl").lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        let mut unsaid = UnsaidTracker::default();
+        let mut seen: Vec<(usize, Unsaid)> = Vec::new();
+        walk_follow(&case, &mut |game, _, step| {
+            match step {
+                0 => unsaid.start(game),
+                k => unsaid.step(game, &case.steps[k - 1].after.log),
+            }
+            for side in 0..2 {
+                for u in unsaid.for_viewer(side) {
+                    if !seen.contains(&(side, u.clone())) {
+                        seen.push((side, u));
+                    }
+                }
+            }
+            Ok(())
+        });
+        for (viewer, u) in seen {
+            *kinds.entry(u.kind()).or_insert(0) += 1;
+            match &u {
+                // The other side is the one not told of a rampage's end or of PP paid to Pressure; a
+                // player is not told where its own Encored move went.
+                Unsaid::RampageEnded { side, .. } | Unsaid::PressurePp { side, .. } => assert_eq!(viewer, 1 - side),
+                Unsaid::EncoreTarget { side, .. } => assert_eq!(viewer, *side),
+            }
+        }
+    }
+    // Three silent ends (the rampage battle and the two V5 ones), the Pressure case and the Encore
+    // case; the renewed rampages (a self-hit, which the log shows) are not among them.
+    assert_eq!(kinds.get("rampage_ended"), Some(&3), "{kinds:?}");
+    assert!(kinds.get("pressure_pp").is_some_and(|&n| n >= 1), "{kinds:?}");
+    assert!(kinds.get("encore_target").is_some_and(|&n| n >= 1), "{kinds:?}");
+}
+
 #[test]
 fn solar_pressure_and_hidden_baton_suppression_regressions_match() {
     let cases: Vec<FollowCase> = include_str!("fixtures/local_300000_targeted_regressions.jsonl")
@@ -408,6 +686,37 @@ fn a_follower_sees_what_the_simulator_sees() {
     eprintln!("counts above 0: {:?}", tally.counted);
 }
 
+/// The counts no other recording reaches (S3b.6): Lock-On's, Syrup Bomb's and Future Sight's, in
+/// random battles over those moves with Showdown's state at every point (`gen_cases.js --n 120
+/// --seed 20261018 --moves lockon,zapcannon,syrupbomb,futuresight --log --requests --open-sheets`,
+/// the three in which a picked Pokémon knows Lock-On and one knows Syrup Bomb, no team holds a
+/// species twice (an export needs the species clause), and none knows Endure, which Showdown's
+/// Future Sight passes over at the oracle pin, D88): each is followed, observed and exported as
+/// the game has it, and each count is above 0 somewhere.
+#[test]
+fn lock_on_syrup_bomb_and_future_sight_are_counted_as_the_game_counts_them() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    let (mut tally, mut exports) = (FollowTally::default(), ExportTally::default());
+    for line in include_str!("fixtures/follow_rare_counts.jsonl").lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state());
+        for outcome in [check_follow(&case, &mut tally), check_export(&case, &mut exports)] {
+            match outcome {
+                Outcome::Pass(_) => {}
+                Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+                Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+    }
+    assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    for count in ["position: lockon turns", "position: syrupbomb turns", "position: slot futuremove turns"] {
+        assert!(tally.counted.get(count).is_some_and(|&n| n > 0), "{count} not reached: {:?}", tally.counted);
+    }
+    assert!(exports.asked > 100, "{} exports", exports.asked);
+    let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+}
+
 /// The same from the outside, as a client uses it: lines and requests in,
 /// an observation and a reply out.
 #[test]
@@ -688,13 +997,12 @@ fn a_followers_game_state_loads_observes_as_it_does_and_counts_as_the_game_does(
     }
     assert!(battles >= 40 && tally.asked > 1000, "{battles} battles, {} exports", tally.asked);
     assert_eq!(tally.broken, 0, "{:#?}", tally.first);
-    // These fixtures are random play kept for the follower's hardest cases; what a search exports
-    // there may still miss a rare lock or count (none do on skilled-play recordings, `followcheck
-    // --export`). Bounded here, and printed.
+    // These fixtures are random play kept for the follower's hardest cases: what a search exports
+    // there observes as its follower does and counts as the game does, every time (D74; before
+    // S3b.6 up to 1% were let through).
     let exported = tally.asked - tally.refused.values().sum::<usize>();
     let (seen, counted) = (tally.observed_differently, tally.counts_differ);
-    assert!(seen * 100 <= exported, "{seen} of {exported}: {:#?}", tally.first);
-    assert!(counted * 100 <= exported, "{counted} of {exported}: {:#?}", tally.first);
+    assert_eq!((seen, counted), (0, 0), "of {exported}: {:#?}", tally.first);
     // The other side's HP: every export shows the percentage and bar the follower was told, HP
     // points included where a bar at exactly 20% or 50% needs them (S3.4).
     assert_eq!(tally.hp_bar_differ, 0, "{:#?}", tally.first);

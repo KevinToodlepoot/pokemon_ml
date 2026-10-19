@@ -34,6 +34,7 @@ fn pool(teams: usize, seed: u16) -> Pool {
         source: String::new(),
         event: "made up".into(),
         format: format.id.clone(),
+        side: None,
         teams: (0..teams).map(|k| team(k, &mut rng)).collect(),
     }
 }

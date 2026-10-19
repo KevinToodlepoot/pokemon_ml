@@ -709,6 +709,10 @@ pub struct Config {
     /// played as it is: for pools of deliberately illegal teams, made up to
     /// teach a model what the regulation's sets do not cover.
     pub check_teams: bool,
+    /// The side of a split pool this plays (`Pool::side`): a pool that says it is another side is
+    /// refused, so that teams held out for evaluation are never played by mistake. `None` plays
+    /// whatever side the pool is; a pool that names no side (one never split) is always played.
+    pub side: Option<String>,
 }
 
 impl Default for Config {
@@ -721,6 +725,7 @@ impl Default for Config {
             max_turns: 100,
             threads: 0,
             check_teams: true,
+            side: Some("train".to_string()),
         }
     }
 }
@@ -777,6 +782,14 @@ fn seed_of(rng: &mut Rng) -> [u16; 4] {
 impl VecEnv {
     /// `config.envs` games between teams of `pool`, all at Team Preview.
     pub fn new(pool: &Pool, config: Config) -> Result<VecEnv, Error> {
+        if let (Some(theirs), Some(ours)) = (&pool.side, &config.side)
+            && theirs != ours
+        {
+            return Err(Error::BadTeam(format!(
+                "the pool is the {theirs:?} side of a split, and this plays the {ours:?} side only \
+                 (pass the side to play it)"
+            )));
+        }
         let sampler = Sampler::with_check(pool, config.check_teams)?;
         if let Some(short) = pool.teams.iter().find(|t| t.team.len() != ROSTER) {
             return Err(Error::BadTeam(format!(

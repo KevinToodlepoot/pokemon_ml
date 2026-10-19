@@ -37,11 +37,12 @@ def part(array, kind, name):
 
 
 class Env:
-    """`envs` games at once between teams of a pool (the JSON `teampool` writes)."""
+    """`envs` games at once between teams of a pool (the JSON `teampool` writes). `side`: the side of a
+    split pool to play ("train" unless told; a pool that says it is another side is refused; None plays any)."""
 
-    def __init__(self, pool, envs=256, seed=1, open_sheets=0.5, vary=True, max_turns=100, threads=0):
+    def __init__(self, pool, envs=256, seed=1, open_sheets=0.5, vary=True, max_turns=100, threads=0, side="train"):
         with open(pool, encoding="utf-8") as file:
-            self.raw = _engine.VecEnv(file.read(), envs, seed, open_sheets, vary, max_turns, threads)
+            self.raw = _engine.VecEnv(file.read(), envs, seed, open_sheets, vary, max_turns, threads, side=side)
         self.envs = envs
         self.f = np.zeros((2 * envs, OBS_F), np.float32)
         self.i = np.zeros((2 * envs, OBS_I), np.int16)

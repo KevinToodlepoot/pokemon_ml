@@ -287,6 +287,35 @@ fn a_pool_of_teams_can_be_saved_loaded_and_played() -> Result<(), Error> {
     Ok(())
 }
 
+/// A pool cut from a larger one says which side of the split it is; an environment plays the
+/// train side unless told another, so teams held out for evaluation are never played by
+/// mistake. A pool that was never split names no side and is played as before.
+#[test]
+fn an_environment_plays_only_the_side_of_a_split_it_is_told() -> Result<(), Error> {
+    let base = Config { envs: 2, seed: 1, threads: 1, variation: Variation::NONE, ..Config::default() };
+    assert_eq!(base.side.as_deref(), Some("train"));
+    let with_side = |side: Option<&str>| Pool { side: side.map(str::to_string), ..pool_of(3) };
+    // Never split, or the train side: played by default.
+    VecEnv::new(&with_side(None), base.clone())?;
+    VecEnv::new(&with_side(Some("train")), base.clone())?;
+    for other in ["heldout", "respread", "synthetic", "all"] {
+        let pool = with_side(Some(other));
+        match VecEnv::new(&pool, base.clone()) {
+            Err(Error::BadTeam(why)) => assert!(why.contains(other), "{why}"),
+            Err(e) => panic!("{other}: {e:?}"),
+            Ok(_) => panic!("the {other} side was played without being asked for"),
+        }
+        // Told that side, or any side: played.
+        VecEnv::new(&pool, Config { side: Some(other.to_string()), ..base.clone() })?;
+        VecEnv::new(&pool, Config { side: None, ..base.clone() })?;
+    }
+    // The side survives a save and a load.
+    let back = Pool::from_json(&with_side(Some("heldout")).to_json())?;
+    assert_eq!(back.side.as_deref(), Some("heldout"));
+    assert!(!pool_of(1).to_json().contains("\"side\""), "a pool never split writes no side");
+    Ok(())
+}
+
 /// A pool of teams the regulation refuses (a Garchomp with Levitate and
 /// Moonblast) is refused by the sampler as a rule, and handed out as it is
 /// when the check is switched off; the environment then plays it.

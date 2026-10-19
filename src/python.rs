@@ -6,7 +6,7 @@
 use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyReadwriteArray1, PyReadwriteArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use crate::data::{ABILITIES, ITEMS, MOVES, SPECIES};
 use crate::env::{Baseline, Config, Game, GameState, N_ACTIONS, N_PREVIEW, OBS_M, VecEnv, preview_table};
@@ -40,9 +40,12 @@ impl PyVecEnv {
     /// `pool` is the text of a team pool (`teams/<name>.json`, as `teampool` writes it).
     /// `check_teams`: refuse a pool team the regulation does not allow (the
     /// default); off, any team the engine can simulate is played as it is.
+    /// `side`: the side of a split pool to play, "train" by default; a pool that
+    /// says it is another side is refused. `None` plays any side.
     #[new]
     #[pyo3(signature = (
-        pool, envs=256, seed=1, open_sheets=0.5, vary=true, max_turns=100, threads=0, check_teams=true
+        pool, envs=256, seed=1, open_sheets=0.5, vary=true, max_turns=100, threads=0, check_teams=true,
+        side=Some("train".to_string())
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -54,10 +57,11 @@ impl PyVecEnv {
         max_turns: u16,
         threads: usize,
         check_teams: bool,
+        side: Option<String>,
     ) -> PyResult<Self> {
         let pool = Pool::from_json(pool).map_err(failed)?;
         let variation = if vary { Variation::default() } else { Variation::NONE };
-        let config = Config { envs, seed, open_sheets, variation, max_turns, threads, check_teams };
+        let config = Config { envs, seed, open_sheets, variation, max_turns, threads, check_teams, side };
         Ok(PyVecEnv { env: VecEnv::new(&pool, config).map_err(failed)? })
     }
 
@@ -1045,15 +1049,22 @@ impl PySearch {
 /// for each side, as `followcheck` does, and returns what each side had at every decision: a
 /// dict with `step`, `side`, `phase` (the follower's: "preview", "move" or "switch"), `truth`
 /// (the game's state, JSON), `export` (the follower's `game_state`, or `None`), `refused` (why
-/// not, or `None`) and `hidden_disable` (the side is barred by something it was not shown, where
-/// followcheck compares nothing). Raises if the battle cannot be followed.
+/// not, or `None`), `hidden_disable` (the side is barred by something it was not shown, where
+/// followcheck compares nothing) and `unsaid` (what this side has not been told and its export may
+/// therefore have otherwise, D89: a list of dicts with `kind`, `side`, `species` and, for PP, `move`).
+/// Raises if the battle cannot be followed, or if its recorded state is not the game's.
 #[pyfunction]
 fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'py, PyDict>>> {
     let c: crate::replay::FollowCase =
         serde_json::from_str(case).map_err(|e| PyValueError::new_err(format!("unreadable recording: {e}")))?;
-    type Row = (usize, usize, Option<&'static str>, String, Result<String, String>, bool);
+    type Row = (usize, usize, Option<&'static str>, String, Result<String, String>, bool, Vec<crate::replay::Unsaid>);
     let mut rows: Vec<Row> = Vec::new();
+    let mut unsaid = crate::replay::UnsaidTracker::default();
     let outcome = crate::replay::walk_follow(&c, &mut |game, followers, step| {
+        match step {
+            0 => unsaid.start(game),
+            k => unsaid.step(game, &c.steps[k - 1].after.log),
+        }
         for (side, follower) in followers.iter().enumerate() {
             let phase = follower.phase().map(|p| match p {
                 Phase::Preview => "preview",
@@ -1062,7 +1073,7 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
             });
             let export = follower.game_state().map(|s| s.to_json());
             let hidden = crate::replay::hidden_disable(game, side);
-            rows.push((step, side, phase, game.to_state().to_json(), export, hidden));
+            rows.push((step, side, phase, game.to_state().to_json(), export, hidden, unsaid.for_viewer(side)));
         }
         Ok(())
     });
@@ -1072,7 +1083,7 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
         crate::replay::Outcome::Fail(why) => return Err(PyRuntimeError::new_err(why.join("; "))),
     }
     rows.into_iter()
-        .map(|(step, side, phase, truth, export, hidden)| {
+        .map(|(step, side, phase, truth, export, hidden, unsaid)| {
             let d = PyDict::new(py);
             d.set_item("step", step)?;
             d.set_item("side", side)?;
@@ -1089,6 +1100,25 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
                 }
             }
             d.set_item("hidden_disable", hidden)?;
+            let told = PyList::empty(py);
+            for u in unsaid {
+                let e = PyDict::new(py);
+                e.set_item("kind", u.kind())?;
+                match u {
+                    crate::replay::Unsaid::RampageEnded { side, species }
+                    | crate::replay::Unsaid::EncoreTarget { side, species } => {
+                        e.set_item("side", side)?;
+                        e.set_item("species", species)?;
+                    }
+                    crate::replay::Unsaid::PressurePp { side, species, mv } => {
+                        e.set_item("side", side)?;
+                        e.set_item("species", species)?;
+                        e.set_item("move", mv)?;
+                    }
+                }
+                told.append(e)?;
+            }
+            d.set_item("unsaid", told)?;
             Ok(d)
         })
         .collect()

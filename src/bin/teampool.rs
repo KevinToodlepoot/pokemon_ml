@@ -93,7 +93,9 @@ fn main() {
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not what scrape_teams.py writes: {e}"));
     let format = Format::current();
 
-    let mut pool = Pool { source: raw.source, event: raw.event, format: format.id.clone(), teams: Vec::new() };
+    // (A tournament's teams, never split into train and held-out: no side.)
+    let mut pool =
+        Pool { source: raw.source, event: raw.event, format: format.id.clone(), side: None, teams: Vec::new() };
     let mut left_out: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let (mut considered, mut pictures_disagree) = (0, Vec::new());
     for team in &raw.teams {

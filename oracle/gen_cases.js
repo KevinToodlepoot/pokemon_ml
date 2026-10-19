@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const L = require('./lib.js');
+const { snapshot: snapshotOf } = require('./snapshot.js');
 const { PS, dex } = L;
 
 const args = {};
@@ -312,130 +313,6 @@ function toPsSet(set, i) {
 	};
 }
 
-function snapshot(battle) {
-	const winner = !battle.ended ? null : battle.winner === 'P1' ? 0 : battle.winner === 'P2' ? 1 : -1;
-	return {
-		turn: battle.turn,
-		ended: battle.ended,
-		winner,
-		request: battle.requestState || '',
-		rng: battle.prng.getSeed().split(',').map(Number),
-		effect_order: battle.effectOrder,
-		battle_last_move: battle.lastMove ? battle.lastMove.id : '',
-		field: {
-			weather: battle.field.weather,
-			weather_turns: battle.field.weatherState.duration || 0,
-			terrain: battle.field.terrain,
-			terrain_turns: battle.field.terrainState.duration || 0,
-			pseudo: Object.keys(battle.field.pseudoWeather).map(id => `${id}:${battle.field.pseudoWeather[id].duration || 0}`),
-		},
-		sides: battle.sides.map(side => ({
-			left: side.pokemonLeft,
-			// Side conditions as id:turns left:detail:effect order, in the order they were added.
-			conds: Object.keys(side.sideConditions).map(id => {
-				const st = side.sideConditions[id];
-				return `${id}:${st.duration || 0}:${condDetail(id, st)}:${st.effectOrder || 0}`;
-			}),
-			slots: side.slotConditions.map(slot => Object.keys(slot).map(id => `${id}:${slot[id].duration || 0}:${condDetail(id, slot[id])}`)),
-			mons: side.pokemon.map(p => ({
-				idx: p.pickIndex,
-				species: p.species.id,
-				hp: p.hp,
-				maxhp: p.maxhp,
-				stats: [p.maxhp, ...L.STAT_IDS.slice(1).map(k => p.storedStats[k])],
-				status: p.fainted ? '' : p.status,
-				time: p.fainted ? 0 : (p.statusState.time || 0),
-				stage: p.fainted ? 0 : (p.statusState.stage || 0),
-				boosts: L.BOOST_IDS.map(k => p.boosts[k]),
-				pp: p.moveSlots.map(m => m.pp),
-				active: p.isActive,
-				fainted: p.fainted,
-				switch_flag: !!p.switchFlag,
-				speed: p.speed,
-				vol: Object.keys(p.volatiles).map(id => `${id}:${p.volatiles[id].duration || 0}:${volDetail(id, p.volatiles[id])}`),
-				ability: p.ability,
-				item: p.item,
-				last_item: p.lastItem,
-				used_item: !!p.usedItemThisTurn,
-				ate_berry: !!p.ateBerry,
-				types: p.types,
-				trapped: p.trapped ? (p.trapped === 'hidden' ? 2 : 1) : 0,
-				disabled: p.moveSlots.map(m => !!m.disabled),
-				ability_order: p.abilityState.effectOrder || 0,
-				item_order: p.itemState.effectOrder || 0,
-				active_turns: p.activeTurns,
-				move_result: [p.moveThisTurnResult, p.moveLastTurnResult].map(resultCode).join(''),
-				base_species: p.baseSpecies.id,
-				can_mega: p.canMegaEvo ? PS.toID(p.canMegaEvo) : '',
-				last_move: p.lastMove ? p.lastMove.id : '',
-				move_actions: Math.min(p.activeMoveActions, 255),
-				newly_switched: !!p.newlySwitched,
-				hurt: p.hurtThisTurn || 0,
-				times_attacked: p.timesAttacked,
-				stat_flags: (p.statsRaisedThisTurn ? 'r' : '-') + (p.statsLoweredThisTurn ? 'l' : '-'),
-				attacked_by: attackedBySummary(p),
-				last_damaged: lastDamagedSummary(p),
-				moves: p.moveSlots.map(m => m.id).join(','),
-				transformed: !!p.transformed,
-				illusion: p.illusion ? p.illusion.pickIndex : -1,
-				added_type: p.addedType || '',
-			})),
-		})),
-	};
-}
-
-/** What this turn's entries of `attackedBy` amount to, as the Rust engine keeps it. */
-function attackedBySummary(p) {
-	let mask = 0;
-	for (const a of p.attackedBy) {
-		if (a.thisTurn && a.damage > 0) mask |= 1 << (a.source.side.n * 6 + a.source.pickIndex);
-	}
-	const last = p.getLastDamagedBy(true);
-	const slot = last && last.thisTurn ? `${'p1a p1b p2a p2b'.split(' ').indexOf(last.slot)}/${last.damage}` : '';
-	return `${mask}:${slot}`;
-}
-
-/** The last entry of `attackedBy` that Metal Burst would answer, whatever turn it is from. */
-function lastDamagedSummary(p) {
-	const last = p.getLastDamagedBy(true);
-	if (!last) return '';
-	return `${'p1a p1b p2a p2b'.split(' ').indexOf(last.slot)}/${last.damage}${last.thisTurn ? '' : '*'}`;
-}
-
-/** The state a side or slot condition carries, as the Rust engine prints it. */
-function condDetail(id, state) {
-	switch (id) {
-	case 'spikes': case 'toxicspikes': return state.layers || 0;
-	case 'wish': return `${Math.floor(state.hp)}/${state.startingTurn}`;
-	case 'futuremove': return `${state.endingTurn}/${state.source.side.n}${state.source.pickIndex}`;
-	default: return 0;
-	}
-}
-
-/** The state a volatile carries, as the Rust engine prints it. */
-function volDetail(id, state) {
-	switch (id) {
-	case 'stall': case 'allyswitch': return state.counter || 0;
-	case 'choicelock': case 'encore': case 'disable': return state.move || 0;
-	case 'substitute': return state.hp;
-	case 'dragoncheer': return state.hasDragonType ? 1 : 0;
-	case 'partiallytrapped': return state.boundDivisor;
-	case 'stockpile': return `${state.layers}/${state.def}/${state.spd}`;
-	case 'lockedmove': return `${state.move}/${state.trueDuration}`;
-	case 'twoturnmove': return state.move;
-	case 'fly': case 'dig': case 'dive': case 'bounce': case 'phantomforce': case 'solarbeam': case 'solarblade':
-	case 'skyattack': case 'meteorbeam': case 'electroshot': return state.targetLoc || 0;
-	case 'leechseed': return 'p1a p1b p2a p2b'.split(' ').indexOf(state.sourceSlot);
-	case 'helpinghand': return Math.round(Math.log(state.multiplier) / Math.log(1.5));
-	case 'confusion': return state.time || 0;
-	case 'metronome': return `${state.lastMove || '-'}/${state.numConsecutive || 0}`;
-	default: return 0;
-	}
-}
-function resultCode(v) {
-	return v === undefined ? 'u' : v === null ? 'n' : v === true ? 't' : v === false ? 'f' : '?';
-}
-
 /**
  * Per active slot, every choice Showdown would accept, as canonical choice strings.
  * This reads the Pokémon's real state rather than the request sent to the player,
@@ -664,7 +541,7 @@ function runCase(id) {
 	// registered, which Team Preview showed, with `picks[side][k]` the roster index of `teams[side][k]`.
 	const out = {
 		id, seed, teams, rosters: [full1, full2], picks, open_sheets: OPEN_SHEETS,
-		initial: snapshot(battle), steps: [], truncated: false,
+		initial: snapshotOf(battle, p => p.pickIndex), steps: [], truncated: false,
 	};
 	if (script && script.name) out.name = script.name;
 	if (TRACE) { out.initial.draws = draws; draws = []; }
@@ -688,7 +565,7 @@ function runCase(id) {
 				throw new Error(`case ${id}: Showdown rejected "${choices[s].join(', ')}" for ${side.id}: ${side.choice.error}`);
 			}
 		});
-		const after = snapshot(battle);
+		const after = snapshotOf(battle, p => p.pickIndex);
 		if (TRACE) { after.draws = draws; draws = []; }
 		if (LOG) after.log = battle.log.slice(logPos);
 		if (REQUESTS) after.requests = requests();

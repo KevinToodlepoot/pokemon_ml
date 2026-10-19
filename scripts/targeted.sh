@@ -9,14 +9,17 @@
 #   SHOWN=1 scripts/targeted.sh [dir]      also record Showdown's log, with open team sheets, and check what
 #                                          each side has been shown against it, with the sheets open and as
 #                                          if they had stayed closed (files are about fifty times larger)
+#   DIFFTEST_ARGS=--strict scripts/targeted.sh   pass arguments to every replay (--strict: an unsupported
+#                                          battle fails too)
+#   PS_DIR=/path/to/pokemon-showdown       a built Showdown other than oracle/pokemon-showdown (as lib.js takes it)
 #
 # Keep the directory to hand the batches to the mutation test:
 #   scripts/targeted.sh corpus && scripts/mutation_test.py corpus/*.jsonl
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ ! -f oracle/pokemon-showdown/dist/sim/index.js ]; then
-  echo "Showdown is not built yet; run scripts/setup-oracle.sh first." >&2
+if [ ! -f "${PS_DIR:-oracle/pokemon-showdown}/dist/sim/index.js" ]; then
+  echo "Showdown is not built yet; run scripts/setup-oracle.sh first (or set PS_DIR to a built one)." >&2
   exit 1
 fi
 OUT="${1:-}"
@@ -108,11 +111,14 @@ record() {
 }
 export -f record
 
-batches | grep -- "${ONLY:-}" | xargs -d '\n' -P "${JOBS:-2}" -I{} bash -c 'record "$1" "$2"' _ {} "$OUT"
+# (One batch per line, NUL-separated: the same on GNU and BSD xargs.)
+export OUT
+batches | grep -- "${ONLY:-}" | tr '\n' '\0' | xargs -0 -n 1 -P "${JOBS:-2}" bash -c 'record "$1" "$OUT"' _
 
 status=0
 while IFS='|' read -r name _; do
-  line="$(./target/release/difftest "$OUT/$name.jsonl" --quiet | tail -n 1)" || status=1
+  # shellcheck disable=SC2086
+  line="$(./target/release/difftest "$OUT/$name.jsonl" --quiet ${DIFFTEST_ARGS:-} | tail -n 1)" || status=1
   printf '%-26s %s\n' "$name" "$line"
   if [ -n "${SHOWN:-}" ]; then
     for sheets in "" --closed-sheets; do

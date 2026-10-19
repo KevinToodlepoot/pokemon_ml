@@ -133,7 +133,7 @@ pub struct MonSnap {
     pub added_type: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct SideSnap {
     pub left: u8,
     pub mons: Vec<MonSnap>,
@@ -146,7 +146,7 @@ pub struct SideSnap {
 }
 
 /// Weather, terrain and pseudo-weathers.
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Debug, Clone)]
 pub struct FieldSnap {
     pub weather: String,
     pub weather_turns: u8,
@@ -156,7 +156,7 @@ pub struct FieldSnap {
 }
 
 /// Showdown's state at one decision point.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Snap {
     pub turn: u16,
     pub ended: bool,
@@ -1386,13 +1386,18 @@ pub fn hidden_disable(game: &crate::env::Game, side: usize) -> bool {
 }
 
 /// What a recorded battle told its players at one decision: the log up to it
-/// and the request each side was sent.
+/// and the request each side was sent; and, where the recorder took it,
+/// Showdown's whole state there, which [`walk_follow`] holds the game to.
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Told {
     #[serde(default)]
     pub ended: bool,
     pub log: Vec<String>,
     pub requests: Vec<serde_json::Value>,
+    /// Showdown's state at this point (`oracle/snapshot.js`), if recorded. Not written back
+    /// out: a battle slimmed for the follower keeps only what the follower reads.
+    #[serde(default, skip_serializing)]
+    pub state: Option<Snap>,
 }
 
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
@@ -1416,6 +1421,33 @@ pub struct FollowCase {
     pub open_sheets: bool,
     pub initial: Told,
     pub steps: Vec<ToldStep>,
+}
+
+impl FollowCase {
+    /// How many of its points (the start, then each step) carry Showdown's state.
+    pub fn states(&self) -> usize {
+        self.initial.state.is_some() as usize + self.steps.iter().filter(|s| s.after.state.is_some()).count()
+    }
+
+    /// Whether every point carries Showdown's state, so that [`walk_follow`] compares the whole battle.
+    pub fn has_every_state(&self) -> bool {
+        self.states() == self.steps.len() + 1
+    }
+}
+
+/// The game's state against Showdown's where the recording has it: every field [`diff`]
+/// compares, the random number generator's words included. A difference means the engine and
+/// Showdown no longer play the same battle (or the recording is wrong), and nothing compared
+/// after it would mean anything.
+fn same_state(game: &crate::env::Game, told: &Told, at: &str) -> Result<(), String> {
+    let (Some(want), Some(b)) = (told.state.as_ref(), game.battle()) else { return Ok(()) };
+    let d = diff(b, want);
+    if d.is_empty() {
+        return Ok(());
+    }
+    let shown: Vec<&str> = d.iter().take(12).map(String::as_str).collect();
+    let more = if d.len() > 12 { format!("; and {} more", d.len() - 12) } else { String::new() };
+    Err(format!("{at}: the state differs from Showdown's: {}{more}", shown.join("; ")))
 }
 
 /// Plays a recorded battle in a [`Game`](crate::env::Game) and, beside it,
@@ -1504,6 +1536,178 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
     outcome
 }
 
+/// Something a player is never told, which a follower therefore cannot know and its export may
+/// have otherwise than the game (D89). Each is recognised exactly from the game's own history, so
+/// that the parity gates can count it by name and hold everything else to the game.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unsaid {
+    /// A rampage (Outrage, Thrash, Petal Dance) that ended on its two-turn roll while its holder was
+    /// already confused: its end adds a confusion the holder takes without a word, so the other side
+    /// cannot tell it from a rampage with a turn to go. Until the turn's end.
+    RampageEnded { side: usize, species: String },
+    /// PP a move paid to Pressure when Showdown blanked the move's target (a failed Sucker Punch:
+    /// `|move|X|Sucker Punch||[still]`), with a Pressure Pokémon and another without among the
+    /// places it could have been aimed at: the other side cannot tell 1 PP from 2. For the battle.
+    PressurePp { side: usize, species: String, mv: String },
+    /// Where a move of the viewer's own went after Champions' Encore replaced it before it ran: the
+    /// Encore re-queues the move with no target, Showdown draws one at random, and when the drawn
+    /// Pokémon has fainted by the time the move runs, the log names only the other. Until it moves again.
+    EncoreTarget { side: usize, species: String },
+}
+
+impl Unsaid {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Unsaid::RampageEnded { .. } => "rampage_ended",
+            Unsaid::PressurePp { .. } => "pressure_pp",
+            Unsaid::EncoreTarget { .. } => "encore_target",
+        }
+    }
+}
+
+/// Keeps, decision by decision along a recorded battle, what each side has not been told
+/// ([`Unsaid`]): [`UnsaidTracker::step`] after each step, with the game as it now is and the step's
+/// log; [`UnsaidTracker::for_viewer`] then lists what applies at this decision to one side's view.
+#[derive(Default)]
+pub struct UnsaidTracker {
+    /// The game's rampages and confusions at the last decision, by side and position: (team index,
+    /// rampaging, confused).
+    before: [[Option<(u8, bool, bool)>; crate::state::ACTIVE]; 2],
+    /// (viewer, what it was not told).
+    now: Vec<(usize, Unsaid)>,
+}
+
+impl UnsaidTracker {
+    fn place(ident: &str) -> Option<(usize, usize)> {
+        let b = ident.as_bytes();
+        let side = match b.get(..2)? {
+            b"p1" => 0,
+            b"p2" => 1,
+            _ => return None,
+        };
+        let pos = (*b.get(2)? as char).to_digit(36)?.checked_sub(10)? as usize;
+        (pos < crate::state::ACTIVE && b.get(3) == Some(&b':')).then_some((side, pos))
+    }
+
+    /// After a step: `game` as it now is, `log` the step's lines.
+    pub fn step(&mut self, game: &crate::env::Game, log: &[String]) {
+        use crate::state::ACTIVE;
+        let Some(b) = game.battle() else { return };
+        let species = |r: crate::MonRef| SPECIES[b.mon(r).set_species as usize].id.to_string();
+        let at = |r: crate::MonRef| (b.mon(r).is_active && !b.mon(r).fainted).then_some(r);
+        // A rampage over without a word ends with the turn; an Encore's draw holds until the move is used
+        // again; Pressure's PP stays.
+        let upkept = log.iter().any(|l| l == "|upkeep");
+        let lines: Vec<Vec<&str>> = log.iter().map(|l| l.split('|').collect()).collect();
+        self.now.retain(|(_, u)| match u {
+            Unsaid::RampageEnded { .. } => !upkept,
+            Unsaid::EncoreTarget { side, species: sp } => !lines.iter().any(|p| {
+                p.get(1) == Some(&"move")
+                    && p.get(2)
+                        .and_then(|w| Self::place(w))
+                        .is_some_and(|(s, pos)| s == *side && at(b.active(s, pos)).is_some_and(|r| species(r) == *sp))
+            }),
+            Unsaid::PressurePp { .. } => true,
+        });
+        for side in 0..2 {
+            for pos in 0..ACTIVE {
+                let r = b.active(side, pos);
+                let (Some(r), Some((idx, rampaging, confused))) = (at(r), self.before[side][pos]) else { continue };
+                let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
+                let used_locked = lines.iter().any(|p| {
+                    p.get(1) == Some(&"move")
+                        && p.get(2).is_some_and(|w| w.starts_with(&tag))
+                        && p.iter().any(|x| x.strip_prefix("[from]").is_some_and(|f| f.trim() == "lockedmove"))
+                });
+                let fatigue = lines.iter().any(|p| {
+                    p.get(1) == Some(&"-start")
+                        && p.get(2).is_some_and(|w| w.starts_with(&tag))
+                        && p.get(3) == Some(&"confusion")
+                        && p.contains(&"[fatigue]")
+                });
+                let vols = b.vols(r);
+                if r.idx == idx
+                    && rampaging
+                    && confused
+                    && used_locked
+                    && !fatigue
+                    && !vols.has(VolKind::Lockedmove)
+                    && vols.has(VolKind::Confusion)
+                {
+                    self.now.push((1 - side, Unsaid::RampageEnded { side, species: species(r) }));
+                }
+            }
+        }
+        for (k, p) in lines.iter().enumerate() {
+            let Some((side, pos)) = p.get(2).and_then(|w| Self::place(w)) else { continue };
+            let Some(user) = at(b.active(side, pos)) else { continue };
+            if p.get(1) == Some(&"move") && p.get(4) == Some(&"") && p.contains(&"[still]") {
+                // A blanked target: which of the other side's could it have been aimed at, and which have Pressure.
+                let Some(mv) = crate::data::move_id(&crate::data::to_id(p[3])) else { continue };
+                if !matches!(
+                    MOVES[mv as usize].target,
+                    crate::data::Target::Normal | crate::data::Target::AdjacentFoe | crate::data::Target::Any
+                ) {
+                    continue;
+                }
+                let foes: Vec<bool> = (0..ACTIVE)
+                    .filter_map(|q| at(b.active(1 - side, q)))
+                    .map(|f| b.mon(f).ability == ab::PRESSURE)
+                    .collect();
+                if foes.iter().any(|&p| p) && foes.iter().any(|&p| !p) {
+                    let u = Unsaid::PressurePp { side, species: species(user), mv: MOVES[mv as usize].id.to_string() };
+                    if !self.now.iter().any(|(v, x)| *v == 1 - side && *x == u) {
+                        self.now.push((1 - side, u));
+                    }
+                }
+            }
+            if p.get(1) == Some(&"-start") && p.get(3) == Some(&"Encore") {
+                // Encored before it moved this turn, with a single-target move, after one of the other
+                // side's fainted: where Showdown's draw sent it is not shown.
+                let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
+                let Some(m) = lines[k..]
+                    .iter()
+                    .position(|q| q.get(1) == Some(&"move") && q.get(2).is_some_and(|w| w.starts_with(&tag)))
+                else {
+                    continue;
+                };
+                let line = &lines[k + m];
+                let single = crate::data::move_id(&crate::data::to_id(line[3])).is_some_and(|mv| {
+                    matches!(
+                        MOVES[mv as usize].target,
+                        crate::data::Target::Normal | crate::data::Target::AdjacentFoe | crate::data::Target::Any
+                    )
+                });
+                let other = ["p1", "p2"][1 - side];
+                let fell = lines[k..k + m]
+                    .iter()
+                    .any(|q| q.get(1) == Some(&"faint") && q.get(2).is_some_and(|w| w.starts_with(other)));
+                if single && fell {
+                    self.now.push((side, Unsaid::EncoreTarget { side, species: species(user) }));
+                }
+            }
+        }
+        for side in 0..2 {
+            for pos in 0..ACTIVE {
+                self.before[side][pos] = at(b.active(side, pos)).map(|r| {
+                    let vols = b.vols(r);
+                    (r.idx, vols.has(VolKind::Lockedmove), vols.has(VolKind::Confusion))
+                });
+            }
+        }
+    }
+
+    /// What `viewer` has not been told at this decision.
+    pub fn for_viewer(&self, viewer: usize) -> Vec<Unsaid> {
+        self.now.iter().filter(|(v, _)| *v == viewer).map(|(_, u)| u.clone()).collect()
+    }
+
+    /// The game at the start of the battle, before any step.
+    pub fn start(&mut self, game: &crate::env::Game) {
+        self.step(game, &[]);
+    }
+}
+
 /// What [`check_export`] found over recorded battles.
 #[derive(Default, Debug)]
 pub struct ExportTally {
@@ -1519,6 +1723,9 @@ pub struct ExportTally {
     pub counts_differ: usize,
     /// Exports where the other side's HP percentage or bar colour is not what the follower was shown.
     pub hp_bar_differ: usize,
+    /// Exports that differ from the game only where the player is not told (D89), by kind: counted,
+    /// not failed.
+    pub unsaid: std::collections::BTreeMap<String, usize>,
     pub first: Vec<String>,
 }
 
@@ -1540,7 +1747,12 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
     if twice {
         return Outcome::Unsupported("a team with a species twice".into());
     }
+    let mut unsaid = UnsaidTracker::default();
     let mut visit = |game: &Game, followers: &[crate::follow::Follower; 2], step: usize| -> Result<(), String> {
+        match step {
+            0 => unsaid.start(game),
+            k => unsaid.step(game, &c.steps[k - 1].after.log),
+        }
         for (side, follower) in followers.iter().enumerate() {
             if hidden_disable(game, side) || follower.phase().is_none() {
                 continue;
@@ -1583,7 +1795,28 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
             follower.observe(&mut f[1], &mut i[1], &mut m[1])?;
             if f[0] != f[1] || i[0] != i[1] || m[0] != m[1] {
                 tally.observed_differently += 1;
-                note(tally, "observes differently from its follower".into());
+                // Where: the first few features, ids and the legal actions (the export's, then the follower's).
+                let mut what: Vec<String> = (0..OBS_F)
+                    .filter(|&k| f[0][k] != f[1][k])
+                    .map(|k| format!("{} {} / {}", feature_name(k), f[0][k], f[1][k]))
+                    .chain(
+                        (0..OBS_I)
+                            .filter(|&k| i[0][k] != i[1][k])
+                            .map(|k| format!("{} {} / {}", id_name(k), i[0][k], i[1][k])),
+                    )
+                    .take(6)
+                    .collect();
+                if m[0] != m[1] {
+                    let set = |m: &[u8]| m.iter().filter(|&&x| x != 0).count();
+                    what.push(format!("legal actions {} / {} set", set(&m[0]), set(&m[1])));
+                }
+                note(
+                    tally,
+                    format!(
+                        "observes differently from its follower (the export's / the follower's): {}",
+                        what.join(", ")
+                    ),
+                );
             }
             // The other side's HP: the export's placeholders show the percentage and bar the
             // follower was told (at exactly 20% or 50% the colour needs HP points to show).
@@ -1609,7 +1842,14 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     }
                     let a = [mine.sleep[s][idx], mine.confusion[s][idx], mine.rampage[s][idx], mine.trap[s][idx]];
                     let z = [theirs.sleep[s][t], theirs.confusion[s][t], theirs.rampage[s][t], theirs.trap[s][t]];
-                    if a != z {
+                    // A rampage this side was not told had ended (D89): its count is not the follower's to know.
+                    let species = SPECIES[truth.sides[s].team[t].set_species as usize].id;
+                    let unsaid_rampage = unsaid.for_viewer(side).iter().any(
+                        |u| matches!(u, Unsaid::RampageEnded { side: us, species: sp } if *us == s && sp == species),
+                    );
+                    if a != z && unsaid_rampage && [a[0], a[1], a[3]] == [z[0], z[1], z[3]] {
+                        *tally.unsaid.entry("rampage_ended".into()).or_insert(0) += 1;
+                    } else if a != z {
                         differ = true;
                         note(tally, format!("counts of side {s} #{idx}: the follower's {a:?}, the game's {z:?}"));
                     }
@@ -1626,7 +1866,9 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
 /// [`Follower`](crate::follow::Follower) for each side, as [`check_follow`]
 /// does, and calls `visit` at every decision (Team Preview, then each request)
 /// with the game, the followers and the step. An error from `visit` fails the
-/// battle.
+/// battle. Where the recording carries Showdown's state ([`Told::state`]), the
+/// game's must equal it at the start and after every step, the last included
+/// (D74), or the battle fails.
 #[allow(clippy::needless_range_loop)]
 pub fn walk_follow(
     c: &FollowCase,
@@ -1697,6 +1939,7 @@ pub fn walk_follow(
             visit(&game, &followers, 0)?;
         }
         game.start([&picks[0], &picks[1]], c.seed).map_err(|e| e.to_string())?;
+        same_state(&game, &c.initial, &format!("battle {} at the start", c.id))?;
         for side in 0..2 {
             followers[side].lines(&Follower::own_lines(side, &c.initial.log[cut..]))?;
             followers[side].request(&c.initial.requests[side].to_string())?;
@@ -1727,6 +1970,9 @@ pub fn walk_follow(
                 }
             }
             game.choose(choices).map_err(|e| e.to_string())?;
+            // (Every step, a side's barred move or switch hidden from it included: the state is
+            // the whole battle's, whatever either side was told.)
+            same_state(&game, &step.after, &format!("battle {} step {}", c.id, k + 1))?;
             for side in 0..2 {
                 followers[side].lines(&Follower::own_lines(side, &step.after.log))?;
                 let request = step.after.requests.get(side).ok_or("a step recorded without its requests")?;
