@@ -818,9 +818,11 @@ pub struct Follower {
     /// By own team index: where Champions' Encore's draw sent its last move is not told (D89, D94;
     /// [`Untold::EncoreTarget`]), until it moves again.
     encore_doubt: [bool; MAX_TEAM],
-    /// By own position: an Encore put its move in again this turn before it moved (`Some`), and one
-    /// of the other side has fainted since (`Some(true)`).
-    encore_faint: [Option<bool>; ACTIVE],
+    /// By own position: an Encore put its move in again this turn before it moved.
+    encore_queued: [Option<EncoreQueued>; ACTIVE],
+    /// The own position whose move, put in again by an Encore with both of the other side standing
+    /// and none fallen since, has a line that names nobody: a later line of the move may say where.
+    encore_unnamed: Option<usize>,
     /// Exact HP of the other side's this side has worked out (a Pain Split or an Endeavor with one
     /// of its own, whose HP it is told exactly), with the percentage and bar it showed then: by the
     /// number each goes by ([`crate::env::HpSeen`]).
@@ -894,6 +896,16 @@ fn not_fail_on_hit(m: u16, form: &str) -> bool {
             | ("swallow" | "healpulse" | "floralhealing" | "pollenpuff", "heal")
             | ("moonlight" | "morningsun" | "synthesis" | "shoreup", "heal")
     )
+}
+
+/// An own Pokémon's move Champions' Encore put in again before it moved, with no target: Showdown
+/// draws one (`BattleQueue#resolveAction`).
+#[derive(Clone, Copy, Debug)]
+struct EncoreQueued {
+    /// One of the other side has fainted since.
+    fell: bool,
+    /// The place drawn when it could be only one (one of the other side standing, or none).
+    forced: Option<i8>,
 }
 
 /// An ability that takes in a move aimed at its holder (`onTryHit` returns null, the move fails
@@ -1121,7 +1133,8 @@ impl Follower {
             rampage_silent: [[false; MAX_TEAM]; 2],
             pressure_doubt: Vec::new(),
             encore_doubt: [false; MAX_TEAM],
-            encore_faint: [None; ACTIVE],
+            encore_queued: [None; ACTIVE],
+            encore_unnamed: None,
             hp_seen: Vec::new(),
             hp_now: Vec::new(),
             pain_split: None,
@@ -2037,7 +2050,7 @@ impl Follower {
             }
             "turn" => {
                 self.turn = arg(2).parse().map_err(|_| "unreadable turn".to_string())?;
-                self.encore_faint = [None; ACTIVE];
+                self.encore_queued = [None; ACTIVE];
                 self.check_fainted();
                 self.upkept = false;
                 (self.fainted_last, self.fainted_now) = (self.fainted_now, [false; 2]);
@@ -2240,8 +2253,8 @@ impl Follower {
             "faint" => {
                 self.fainted_now[side] = true;
                 if side != self.side {
-                    for caught in self.encore_faint.iter_mut().filter(|c| **c == Some(false)) {
-                        *caught = Some(true);
+                    for caught in self.encore_queued.iter_mut().flatten() {
+                        caught.fell = true;
                     }
                 }
                 self.faints[side] = self.faints[side].saturating_add(1);
@@ -2313,16 +2326,24 @@ impl Follower {
                     let spot = self.spot(side, pos);
                     spot.first = Some((used, spot.next_seq()));
                 }
+                // Where Champions' Encore's draw sent its own move (D89): with one of the other side
+                // standing, there; with two, not told if the one drawn fainted first (the log names the
+                // other) or the line names nobody (a move that failed with no animation: `[still]`
+                // blanks its target, `Battle#attrLastMove`). Until it moves again.
+                let mut drawn = None;
                 if side == self.side {
-                    // Where Champions' Encore's draw sent its move, if the Pokémon drawn fainted first, is
-                    // not told (D89): until it moves again.
                     let single =
                         matches!(MOVES[used as usize].target, Target::Normal | Target::AdjacentFoe | Target::Any);
+                    let queued_by_encore = self.encore_queued[pos].take().filter(|_| replaced && single);
+                    drawn = queued_by_encore.and_then(|q| q.forced);
+                    self.encore_unnamed = queued_by_encore
+                        .is_some_and(|q| q.forced.is_none() && !q.fell && arg(4).is_empty())
+                        .then_some(pos);
                     let idx = self.own_at[pos];
                     if idx < MAX_TEAM {
-                        self.encore_doubt[idx] = replaced && single && self.encore_faint[pos] == Some(true);
+                        self.encore_doubt[idx] =
+                            queued_by_encore.is_some_and(|q| q.forced.is_none() && (q.fell || arg(4).is_empty()));
                     }
-                    self.encore_faint[pos] = None;
                 }
                 if queued {
                     let mine = side == self.side;
@@ -2333,7 +2354,7 @@ impl Follower {
                         // lock says, the place chosen when it began (`Side#chooseMove`), not where the log
                         // shows it land.
                         spot.last_move_loc = if replaced {
-                            Some(0)
+                            Some(drawn.unwrap_or(0))
                         } else if from == "lockedmove" {
                             before_loc
                         } else {
@@ -3206,7 +3227,16 @@ impl Follower {
                     if kind == VolKind::Encore && begun == 0 {
                         spot.overridden = Some(at);
                         if side == self.side {
-                            self.encore_faint[pos] = Some(false);
+                            // Showdown draws the move's target now (`getRandomTarget`: one of the other
+                            // side's standing, `Side#randomFoe`; with nobody standing, its first place).
+                            let foe = 1 - side;
+                            let standing: Vec<usize> = (0..ACTIVE).filter(|&p| self.present(foe, p)).collect();
+                            let forced = match standing[..] {
+                                [p] => Some(p as i8 + 1),
+                                [] => Some(1),
+                                _ => None,
+                            };
+                            self.encore_queued[pos] = Some(EncoreQueued { fell: false, forced });
                         }
                     }
                     let spot = self.spot(side, pos);
@@ -3734,6 +3764,30 @@ impl Follower {
     /// hidden-length effects, the items used up. Runs after [`Follower::track`] has taken the line in.
     fn keep(&mut self, kind: &str, parts: &[&str], from: &str) {
         let arg = |i: usize| parts.get(i).copied().unwrap_or("");
+        // Where its own move Champions' Encore put in again went, when its line named nobody but a
+        // later line of the move names it (D89): `-anim` (Power Herb, a charging move let off in sun
+        // or rain), a heal that fails on one at full HP (`-fail|T|heal`), Armor Tail or Queenly
+        // Majesty (`cant|H|ability: ...|M|[of] T`). (Not after one of the other side fell: then
+        // Showdown drew again, and the line names the second draw, not the one the game keeps.)
+        if let Some((user, ..)) = self.under_way
+            && user.0 == self.side
+            && self.encore_unnamed == Some(user.1)
+        {
+            let told = match kind {
+                "-anim" if self.place_of(arg(2)) == Some(user) => self.place_of(arg(4)),
+                "-fail" if arg(3) == "heal" => self.place_of(arg(2)),
+                "cant" => parts.iter().find_map(|x| x.strip_prefix("[of] ")).and_then(|w| self.place_of(w)),
+                _ => None,
+            };
+            if let Some((_, p)) = told.filter(|t| t.0 != self.side) {
+                self.encore_unnamed = None;
+                self.spots[user.0][user.1].last_move_loc = Some(p as i8 + 1);
+                let idx = self.own_at[user.1];
+                if idx < MAX_TEAM {
+                    self.encore_doubt[idx] = false;
+                }
+            }
+        }
         match kind {
             "turn" => {
                 // `Battle#endTurn` has run: this turn's results become last turn's, a stat change

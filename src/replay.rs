@@ -1585,9 +1585,11 @@ pub enum Unsaid {
     /// places it could have been aimed at: the other side cannot tell 1 PP from 2. For the battle.
     PressurePp { side: usize, species: String, mv: String },
     /// Where a move of the viewer's own went after Champions' Encore replaced it before it ran: the
-    /// Encore re-queues the move with no target, Showdown draws one at random, and when the drawn
-    /// Pokémon has fainted by the time the move runs, the log names only the other. Until it moves again.
-    EncoreTarget { side: usize, species: String },
+    /// Encore re-queues the move with no target, and Showdown draws one of the two standing on the
+    /// other side. When the drawn Pokémon has fainted by the time the move runs, the log names only
+    /// the other; when the move fails with no animation (`blanked`), `[still]` takes the target off
+    /// its line and no later line names it. Until it moves again.
+    EncoreTarget { side: usize, species: String, blanked: bool },
 }
 
 impl Unsaid {
@@ -1595,7 +1597,8 @@ impl Unsaid {
         match self {
             Unsaid::RampageEnded { .. } => "rampage_ended",
             Unsaid::PressurePp { .. } => "pressure_pp",
-            Unsaid::EncoreTarget { .. } => "encore_target",
+            Unsaid::EncoreTarget { blanked: false, .. } => "encore_target",
+            Unsaid::EncoreTarget { blanked: true, .. } => "encore_blanked",
         }
     }
 }
@@ -1622,6 +1625,8 @@ pub struct UnsaidTracker {
     standing: [[Option<u8>; crate::state::ACTIVE]; 2],
     /// (viewer, what it was not told).
     now: Vec<(usize, Unsaid)>,
+    /// The move each place was last chosen to use (a move request's choice), if it was a move.
+    chose: [[Option<u16>; crate::state::ACTIVE]; 2],
 }
 
 impl UnsaidTracker {
@@ -1636,10 +1641,28 @@ impl UnsaidTracker {
         (pos < crate::state::ACTIVE && b.get(3) == Some(&b':')).then_some((side, pos))
     }
 
-    /// After a step: `game` as it now is, `log` the step's lines.
-    pub fn step(&mut self, game: &crate::env::Game, log: &[String]) {
+    /// After a step: `game` as it now is, `log` the step's lines, `choices` the step's choices.
+    pub fn step(&mut self, game: &crate::env::Game, log: &[String], choices: &[String; 2]) {
         use crate::state::ACTIVE;
         let Some(b) = game.battle() else { return };
+        // The moves chosen (`move N ...`, by the place's slot in the request), from who stood there; a
+        // replacement's `switch` clears the place, a `pass` keeps what it had.
+        for side in 0..2 {
+            for (pos, choice) in choices[side].split(", ").enumerate().take(ACTIVE) {
+                let mut words = choice.split_whitespace();
+                match words.next() {
+                    Some("move") => {
+                        let slot = words.next().and_then(|n| n.parse::<usize>().ok()).and_then(|n| n.checked_sub(1));
+                        self.chose[side][pos] = self.standing[side][pos].zip(slot).and_then(|(i, n)| {
+                            let m = b.mon(crate::MonRef { side: side as u8, idx: i });
+                            m.moves[..m.n_moves as usize].get(n).map(|s| s.id)
+                        });
+                    }
+                    Some("switch" | "shift") => self.chose[side][pos] = None,
+                    _ => {}
+                }
+            }
+        }
         let species = |r: crate::MonRef| SPECIES[b.mon(r).set_species as usize].id.to_string();
         let at = |r: crate::MonRef| (b.mon(r).is_active && !b.mon(r).fainted).then_some(r);
         // A rampage over without a word ends with the turn; an Encore's draw holds until the move is used
@@ -1674,7 +1697,7 @@ impl UnsaidTracker {
         self.now.retain(|(viewer, u)| match u {
             // (Its own side sees it free once a move request lists its moves.)
             Unsaid::RampageEnded { side, .. } => !upkept && (viewer != side || !moving),
-            Unsaid::EncoreTarget { side, species: sp } => !lines.iter().enumerate().any(|(k, p)| {
+            Unsaid::EncoreTarget { side, species: sp, .. } => !lines.iter().enumerate().any(|(k, p)| {
                 p.get(1) == Some(&"move")
                     && p.get(2)
                         .and_then(|w| Self::place(w))
@@ -1752,8 +1775,10 @@ impl UnsaidTracker {
                 }
             }
             if p.get(1) == Some(&"-start") && p.get(3) == Some(&"Encore") {
-                // Encored before it moved this turn, with a single-target move, after one of the other
-                // side's fainted: where Showdown's draw sent it is not shown.
+                // Encored before it moved this turn, with a single-target move other than the one it
+                // chose, with both of the other side's standing (Showdown draws one, `getRandomTarget`):
+                // where the draw sent it is not shown after one of the other side's fainted, nor when the
+                // move's line names nobody (`[still]`) and no later line of the move names it.
                 let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
                 let Some(m) = lines[k..]
                     .iter()
@@ -1772,15 +1797,44 @@ impl UnsaidTracker {
                 let fell = lines[k..k + m]
                     .iter()
                     .any(|q| q.get(1) == Some(&"faint") && q.get(2).is_some_and(|w| w.starts_with(other)));
-                // (Only where the draw went to the one that fell: then the place the game keeps is not the
-                // one the log names. An Encore onto the move already chosen draws nothing.)
+                let used = crate::data::move_id(&crate::data::to_id(line[3]));
+                let replaced = used.is_some() && used != self.chose[side][pos];
+                let both = (0..ACTIVE).all(|q| who[k][1 - side][q].is_some());
+                let blank = line.get(4).is_none_or(|w| w.is_empty());
+                // The rest of the move: up to the next action, the turn's end or its upkeep (an Armor
+                // Tail's `cant` names the target with `[of]`, and is the move's own).
+                let rest = &lines[k + m + 1..];
+                let end = rest
+                    .iter()
+                    .position(|q| match q.get(1).copied() {
+                        Some("move" | "switch" | "drag" | "upkeep" | "turn" | "") => true,
+                        Some("cant") => !q.iter().any(|x| x.starts_with("[of] ")),
+                        _ => false,
+                    })
+                    .unwrap_or(rest.len());
+                let foe = |w: &str| Self::place(w).filter(|&(s, _)| s == 1 - side).map(|(_, q)| q as i8 + 1);
+                // Where a later line of a move whose own line names nobody says it went: `-anim` (Power
+                // Herb, a charging move let off in sun or rain), a heal that fails on one at full HP
+                // (`-fail|T|heal`), Armor Tail or Queenly Majesty (`cant|H|ability: ...|M|[of] T`).
+                let revealed = rest[..end].iter().find_map(|q| match q.get(1).copied() {
+                    Some("-anim") if q.get(2).is_some_and(|w| w.starts_with(&tag)) => q.get(4).and_then(|w| foe(w)),
+                    Some("-fail") if q.get(3) == Some(&"heal") => q.get(2).and_then(|w| foe(w)),
+                    Some("cant") => q.iter().filter_map(|x| x.strip_prefix("[of] ")).find_map(foe),
+                    _ => None,
+                });
+                // (After one of the other side's fell, only where the draw went to the one that fell: then
+                // the place the game keeps is not the one the log names, on the move's line or a later
+                // one. An Encore onto the move already chosen draws nothing.)
                 let named = line.get(4).and_then(|w| Self::place(w)).map(|(s, q)| {
                     let loc = q as i8 + 1;
                     if s == side { -loc } else { loc }
                 });
                 let kept = b.mon(user).last_move_loc;
-                if single && fell && named.is_some_and(|loc| loc != kept) {
-                    self.now.push((side, Unsaid::EncoreTarget { side, species: species(user) }));
+                if single && fell && named.or(revealed).is_some_and(|loc| loc != kept) {
+                    self.now.push((side, Unsaid::EncoreTarget { side, species: species(user), blanked: false }));
+                }
+                if single && replaced && both && blank && revealed.is_none() {
+                    self.now.push((side, Unsaid::EncoreTarget { side, species: species(user), blanked: true }));
                 }
             }
         }
@@ -1800,7 +1854,7 @@ impl UnsaidTracker {
 
     /// The game at the start of the battle, before any step.
     pub fn start(&mut self, game: &crate::env::Game) {
-        self.step(game, &[]);
+        self.step(game, &[], &[String::new(), String::new()]);
     }
 }
 
@@ -1888,7 +1942,7 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
     let mut visit = |game: &Game, followers: &[crate::follow::Follower; 2], step: usize| -> Result<(), String> {
         match step {
             0 => unsaid.start(game),
-            k => unsaid.step(game, &c.steps[k - 1].after.log),
+            k => unsaid.step(game, &c.steps[k - 1].after.log, &c.steps[k - 1].choices),
         }
         for (side, follower) in followers.iter().enumerate() {
             if hidden_disable(game, side) || follower.phase().is_none() {
@@ -1988,7 +2042,7 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     || st.untold.iter().any(|e| match (&u, e) {
                         (Unsaid::RampageEnded { side: s, species }, Untold::Rampage { side: t, team_index })
                         | (
-                            Unsaid::EncoreTarget { side: s, species },
+                            Unsaid::EncoreTarget { side: s, species, .. },
                             Untold::EncoreTarget { side: t, team_index, .. },
                         ) => *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()),
                         (

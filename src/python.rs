@@ -1068,7 +1068,7 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
     let outcome = crate::replay::walk_follow(&c, &mut |game, followers, step| {
         match step {
             0 => unsaid.start(game),
-            k => unsaid.step(game, &c.steps[k - 1].after.log),
+            k => unsaid.step(game, &c.steps[k - 1].after.log, &c.steps[k - 1].choices),
         }
         for (side, follower) in followers.iter().enumerate() {
             let phase = follower.phase().map(|p| match p {
@@ -1111,7 +1111,7 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
                 e.set_item("kind", u.kind())?;
                 match u {
                     crate::replay::Unsaid::RampageEnded { side, species }
-                    | crate::replay::Unsaid::EncoreTarget { side, species } => {
+                    | crate::replay::Unsaid::EncoreTarget { side, species, .. } => {
                         e.set_item("side", side)?;
                         e.set_item("species", species)?;
                     }

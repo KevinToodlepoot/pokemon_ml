@@ -1170,12 +1170,16 @@ Further checks:
   small bug at a time (Life Orb's multiplier off by 1/4096, Intimidate
   lowering by two stages, Mold Breaker ignored, Sitrus Berry restoring a third) and
   replays recorded battles. A second mode switches off one callback at a time
-  (one ability's reaction to one event, one move's script). All 415
-  hand-written bugs and all 602 switched-off callbacks are caught. Another 15
-  callbacks, and eight hand-written bugs that were tried, change nothing
-  that can be observed in Champions (Ripen doubling the stat changes of
-  berries, where no berry in the game changes stats); the script lists each
-  with its reason. Random battles are not enough for this: with 3,000
+  (one ability's reaction to one event, one move's script). All 414
+  hand-written bugs are caught (the last run: the 69 batches and 2,000
+  general battles, 2,429 s in four slices), and all 602 switched-off
+  callbacks were in that mode's last run. Another 15 callbacks, and nine
+  hand-written bugs that were tried, change nothing that can be observed in
+  Champions (Ripen doubling the stat changes of berries, where no berry in
+  the game changes stats; a move's did-anything starting from nothing rather
+  than its damage results, which decide only when no target is left, and
+  none is ever left with a failed damage result); the script lists each with
+  its reason. Random battles are not enough for this: with 3,000
   general battles, 88 of the 1,017 bugs were only caught by a batch built
   around the effect, such as Sleep Talk on a Pokémon that also knows Rest
   and Meteor Beam, or Dragon Darts into a Protect beside a Berserk Pokémon
@@ -1215,7 +1219,7 @@ The mutation test needs recorded battles to replay: the batches built around
 particular effects, and a few thousand general ones.
 
 ```sh
-scripts/targeted.sh corpus                                              # 67 batches, about 21,000 battles
+scripts/targeted.sh corpus                                              # 69 batches, about 22,000 battles
 node oracle/gen_cases.js --n 3000 --seed 9500 --out corpus/general.jsonl
 scripts/mutation_test.py corpus/*.jsonl --handlers                      # slow: a rebuild per injected bug
 ```

@@ -49,6 +49,7 @@ reckless|300|6816|--abilities reckless,noability --moves highjumpkick,doubleedge
 sheer-force-electro-shot|300|6817|--species archaludon --abilities sheerforce,noability --moves electroshot,meteorbeam,raindance --items kingsrock
 vetoed-moves|300|6818|--moves throatchop,hypervoice,roar,partingshot,perishsong,snarl --abilities magicbounce,soundproof,noability
 ally-moves|150|9801|--moves pollenpuff,shellsidearm,beatup,curse,metalburst,comeuppance,substitute,psychicnoise,trickortreat,soak,doubleedge,followme
+shell-side-arm-tie|400|9961|--species slowbrogalar --moves shellsidearm,swordsdance,bulkup,screech,faketears,metalsound,charm
 dragon-darts|150|9802|--moves dragondarts,protect,followme,ragepowder,substitute,detect,spikyshield,phantomforce,fly --species dragapult,clefable,sylveon,gardevoir,azumarill,skarmory,corviknight
 queue-order|150|9803|--moves afteryou,quash,round,instruct,copycat,sleeptalk,rest,sleeppowder,yawn,counter,mirrorcoat,hypervoice
 called-moves|150|9804|--moves copycat,metalburst,fly,hyperbeam,outrage,explosion,rest,sleeptalk,substitute,protect,followme,dragondarts,bulletseed,snore,round --abilities pressure,moldbreaker,protean,prankster,magicbounce,noability --items metronome,choicescarf,quickclaw,chestoberry,leppaberry

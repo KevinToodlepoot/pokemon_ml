@@ -88,7 +88,6 @@ MUT = [
  ('ally switch leaves volatiles behind', B, '        self.vols[side].swap(old_pos, new_pos);\n', ''),
  ('ally switch always works', C, 'if !self.chance(1, counter, "consecutive ally switch") {', 'if !self.chance(1, 1, "consecutive ally switch") {'),
  ('self-switch flag forgets the move', M, '            m.switch_flag = true;\n            m.switch_move = id;', '            m.switch_flag = true;'),
- ('did-anything ignores the damage', M, '        let mut any = damage[0];\n        for d in &damage[1..n] {\n            any = any.combine(*d);\n        }', '        let mut any = Res::Undef;'),
  ('u-turn redoes the switch-out event', B, '        if self.mon(r).skip_before_switch_out {\n            return;\n        }\n', ''),
  ('before-switch-out event not marked done', B, '        m.skip_before_switch_out = !(m.hp > 0 && !m.switch_flag);', '        m.skip_before_switch_out = false;'),
  ('parting shot always switches', V, '                if !success && !self.has_ability(target, ab::MIRRORARMOR) {\n                    self.am[mi as usize].self_switch = SelfSwitch::No;\n                }', ''),
@@ -511,6 +510,17 @@ def callback_arms(text):
 #  - A hit on Mimikyu's disguise counting as critical: the hit does no damage either way.
 #  - A permanent forme change keeping the old maximum HP: the two that exist in Champions
 #    (Mimikyu's disguise breaking, Palafin's Hero forme) do not change base HP.
+#  - A move's did-anything starting from nothing instead of its damage results (`run_move_effects`,
+#    Showdown's `didAnything = damage.reduce(combineResults)`): every target still there adds its
+#    own result, so the damage results decide only when no target is left, and then only whether a
+#    `[still]` blanks the move's target (`hide_pp_target`, the PP a viewer cannot count behind
+#    Pressure). No target is left with a false damage result only if `getDamage` fails on immunity
+#    (already caught at `hitStepTypeImmunity` under the same rule), a damage or power callback
+#    returns false (Spit Up, whose `onTry` fails first), the Damage event refuses a move's hit (only
+#    Magic Guard, Poison Heal and Rock Head refuse, and only indirect damage) or the target has left
+#    before the hit. S3b.6b2 counted the line reached 69,113 times (difftest's replays and rebuilds
+#    of gate 1's random, real-team and themed battles; gate 2's skilled games through followcheck):
+#    always with a target left.
 
 # Callbacks that do nothing observable in Champions, so that switching them off changes nothing.
 EQUIVALENT = {

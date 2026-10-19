@@ -188,8 +188,9 @@ pub enum Untold {
     /// or two. The battle counts one each, and has `pp` left.
     PressurePp { side: u8, team_index: u8, move_id: String, payments: u8, pp: u8 },
     /// Where a move of the player's own went after Champions' Encore put it in again with no
-    /// target and the Pokémon Showdown drew fainted first: one of `locs`. The battle has the place
-    /// the log named.
+    /// target, with two of the other side standing: one of `locs`. Either the Pokémon Showdown drew
+    /// fainted first (the battle has the place the log named), or the move failed with no
+    /// animation, which takes the target off its line (the battle has none).
     EncoreTarget { side: u8, team_index: u8, locs: Vec<i8> },
     /// Stats the other side's Pokémon split or swapped with its partner (Power Split, Guard Split,
     /// Speed Swap) this stay: they come from two spreads the player does not know, and a position

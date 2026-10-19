@@ -149,7 +149,7 @@ fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
     let outcome = walk_follow(case, &mut |game, followers, step| {
         match step {
             0 => unsaid.start(game),
-            k => unsaid.step(game, &case.steps[k - 1].after.log),
+            k => unsaid.step(game, &case.steps[k - 1].after.log, &case.steps[k - 1].choices),
         }
         let truth = value(game);
         let switching = truth["battle"]["request"] == "switch";
@@ -193,7 +193,7 @@ fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
                             Unsaid::PressurePp { side: us, species: sp, .. } => {
                                 *us == s && sp == species && field == "moves.pp"
                             }
-                            Unsaid::EncoreTarget { side: us, species: sp } => {
+                            Unsaid::EncoreTarget { side: us, species: sp, .. } => {
                                 *us == s && sp == species && field == "last_move_target"
                             }
                         });
@@ -272,7 +272,7 @@ fn what_the_state_gates_first_run_found_the_export_getting_wrong_is_right() {
         }
         wrong.extend(export_differs(&case, &fields));
     }
-    assert!(battles >= 43 && tally.asked > 300, "{battles} battles, {} exports", tally.asked);
+    assert!(battles >= 49 && tally.asked > 300, "{battles} battles, {} exports", tally.asked);
     let bad = (tally.broken, tally.observed_differently, tally.counts_differ, tally.hp_bar_differ);
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", tally.first);
     assert!(wrong.is_empty(), "{wrong:#?}");
@@ -283,6 +283,107 @@ fn what_the_state_gates_first_run_found_the_export_getting_wrong_is_right() {
     for kind in ["rampage", "pressure_pp", "encore_target"] {
         assert!(tally.untold.get(kind).is_some_and(|&n| n > 0), "{kind}: {:?}", tally.untold);
     }
+}
+
+/// Champions' Encore puts a move in again with no target, and Showdown draws one (D89, S3b.6b2): the
+/// Encored Pokémon's own side is told where, unless both of the other side stood at the draw and
+/// the move's line names nobody (`[still]`) with no later line of it naming the place. Battles
+/// 43-48 of the D89 fixture: a Trick (after one of the other side fainted), a Dig and a Fake Out whose
+/// lines are blanked (not told: recognised as `encore_blanked` and listed, the Dig's charge aimed at
+/// the same hidden place); a Disable with
+/// one of the other side standing (the draw had one place); a Solar Beam let off in the sun, whose
+/// `-anim` names the place; and the same Solar Beam after the Pokémon drawn has fainted (battle 48),
+/// whose `-anim` names Showdown's second draw, not the place the game keeps: listed as the fainted
+/// case is. Wherever the export does not list it, it has the game's place.
+#[test]
+fn where_an_encored_move_went_is_listed_only_where_it_is_not_told() {
+    use vgc_engine::env::{Game, Untold};
+    use vgc_engine::replay::{Unsaid, UnsaidTracker, hidden_disable};
+    let value = |game: &Game| -> serde_json::Value { serde_json::from_str(&game.to_state().to_json()).unwrap() };
+    let mut seen = std::collections::BTreeMap::<u32, (usize, usize, usize, usize)>::new();
+    for line in include_str!("fixtures/export_regressions.jsonl").lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        if !(43..=48).contains(&case.id) {
+            continue;
+        }
+        let (mut recognised, mut listed, mut compared, mut charged) = (0, 0, 0, 0);
+        let mut unsaid = UnsaidTracker::default();
+        let outcome = walk_follow(&case, &mut |game, followers, step| {
+            match step {
+                0 => unsaid.start(game),
+                k => unsaid.step(game, &case.steps[k - 1].after.log, &case.steps[k - 1].choices),
+            }
+            let truth = value(game);
+            for (side, follower) in followers.iter().enumerate() {
+                if hidden_disable(game, side) || follower.phase().is_none() {
+                    continue;
+                }
+                let blanked: Vec<String> = unsaid
+                    .for_viewer(side)
+                    .into_iter()
+                    .filter_map(|u| match u {
+                        Unsaid::EncoreTarget { species, blanked: true, .. } => Some(species),
+                        _ => None,
+                    })
+                    .collect();
+                recognised += blanked.len();
+                // (A wait, or a position the export refuses: nothing to compare.)
+                let Ok(st) = follower.game_state() else { continue };
+                let export = value(&Game::from_state(&st).map_err(|e| e.to_string())?);
+                let mine = |state: &serde_json::Value| state["battle"]["sides"][side]["pokemon"].as_array().cloned().unwrap();
+                // (The Pokémon under an Encore: what any other's last aim is, is another fixture's.)
+                let encored = |p: &&serde_json::Value| {
+                    p["volatiles"].as_array().into_iter().flatten().any(|v| v["id"] == "encore")
+                };
+                for p in mine(&truth).iter().filter(|p| p["is_active"] == true).filter(encored) {
+                    let q = mine(&export).into_iter().find(|q| q["original_species"] == p["original_species"]).unwrap();
+                    let entry = st.untold.iter().find_map(|u| match u {
+                        Untold::EncoreTarget { side: s, team_index, locs }
+                            if *s as usize == side && q["team_index"] == *team_index => Some(locs.clone()),
+                        _ => None,
+                    });
+                    let species = p["original_species"].as_str().unwrap();
+                    let game_loc = p["last_move_target"].as_i64().unwrap_or(0);
+                    match entry {
+                        Some(locs) => {
+                            listed += 1;
+                            assert!(locs.contains(&(game_loc as i8)), "battle {} step {step}: {game_loc} not in {locs:?}", case.id);
+                            // (A charge it is making is aimed where the draw went: the same hidden place.)
+                            let charging = ["dig", "fly", "dive", "bounce", "phantomforce", "solarbeam", "solarblade", "skyattack", "meteorbeam", "electroshot"];
+                            for v in p["volatiles"].as_array().into_iter().flatten() {
+                                if charging.contains(&v["id"].as_str().unwrap_or("")) {
+                                    assert_eq!(v["a"].as_i64().unwrap_or(0), game_loc, "battle {} step {step}: {v}", case.id);
+                                    charged += 1;
+                                }
+                            }
+                        }
+                        None => {
+                            assert!(!blanked.iter().any(|b| b == species), "battle {} step {step}: {species} not listed", case.id);
+                            compared += 1;
+                            assert_eq!(q["last_move_target"].as_i64().unwrap_or(0), game_loc, "battle {} step {step}: {species}", case.id);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        });
+        match outcome {
+            Outcome::Pass(_) => {}
+            Outcome::Fail(why) => panic!("battle {}: {}", case.id, why.join("; ")),
+            Outcome::Unsupported(why) => panic!("battle {}: {why}", case.id),
+        }
+        seen.insert(case.id, (recognised, listed, compared, charged));
+    }
+    assert_eq!(seen.len(), 6, "{seen:?}");
+    for id in [43, 44, 47] {
+        assert!(seen[&id].0 > 0 && seen[&id].1 > 0, "battle {id}: {seen:?}");
+    }
+    assert!(seen[&44].3 > 0, "the Dig's charge: {seen:?}");
+    for id in [45, 46] {
+        assert!(seen[&id].0 == 0 && seen[&id].1 == 0 && seen[&id].2 > 0, "battle {id}: {seen:?}");
+    }
+    // (After the one drawn fell, a later line names the second draw: listed, as the fainted case is.)
+    assert!(seen[&48].0 == 0 && seen[&48].1 > 0, "battle 48: {seen:?}");
 }
 
 /// What no player is told is recognised from the game's history (D89), each kind in a battle that
@@ -298,7 +399,7 @@ fn what_no_player_is_told_is_recognised_exactly() {
         walk_follow(&case, &mut |game, _, step| {
             match step {
                 0 => unsaid.start(game),
-                k => unsaid.step(game, &case.steps[k - 1].after.log),
+                k => unsaid.step(game, &case.steps[k - 1].after.log, &case.steps[k - 1].choices),
             }
             for side in 0..2 {
                 for u in unsaid.for_viewer(side) {
@@ -324,6 +425,8 @@ fn what_no_player_is_told_is_recognised_exactly() {
     assert_eq!(kinds.get("rampage_ended"), Some(&3), "{kinds:?}");
     assert!(kinds.get("pressure_pp").is_some_and(|&n| n >= 1), "{kinds:?}");
     assert!(kinds.get("encore_target").is_some_and(|&n| n >= 1), "{kinds:?}");
+    // Three blanked lines after an Encore (S3b.6b2): a Trick and a Fake Out that fail, and a Dig's charge.
+    assert_eq!(kinds.get("encore_blanked"), Some(&3), "{kinds:?}");
 }
 
 #[test]
@@ -738,7 +841,7 @@ fn what_the_new_pin_and_random_play_found_the_follower_getting_wrong_is_right() 
         walk_follow(&case, &mut |game, _, step| {
             match step {
                 0 => unsaid.start(game),
-                k => unsaid.step(game, &case.steps[k - 1].after.log),
+                k => unsaid.step(game, &case.steps[k - 1].after.log, &case.steps[k - 1].choices),
             }
             for viewer in 0..2 {
                 for u in unsaid.for_viewer(viewer) {
