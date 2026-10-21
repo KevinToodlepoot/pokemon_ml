@@ -481,7 +481,8 @@ fn root_state_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
 /// families the second full measurement found (Dragon Darts that strike nothing, a move Magic Bounce sends back,
 /// Synchronize's and Heal Block's lines, a Substitute's share of a status move, Curse's aim, and more); 74-89
 /// the third's (a revived Pokémon passed in, Ripen, Trace at entry, Counter's and Metal Burst's PP, a disguise's item);
-/// 90-97 the fourth's (an Instruct while asleep, a Substitute's share, Trace at a Mega Evolution, Flower Veil, a redirect).
+/// 90-97 the fourth's (an Instruct while asleep, a Substitute's share, Trace at a Mega Evolution, Flower Veil, a redirect);
+/// 98 the real-team re-measure's (S3b.8: a Pokémon revived where it fainted, before anyone replaced it, scripted).
 #[test]
 fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
     use vgc_engine::replay::{ExportTally, check_export};
@@ -495,7 +496,7 @@ fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
             5 => &["syrup_triggered"],
             6 | 7 | 38 => &["conditions", "slot_conditions"],
             15..=19 | 40 | 49..=51 | 59 | 61 | 64..=69 | 73 | 77..=79 | 83 | 85 | 86 | 89 | 91 | 93 | 94 | 96 | 97 => RESULT,
-            20 | 21 | 56 | 62 | 74 => &["damaged_by.pokemon", "times_attacked", "types_said.attacked_by"],
+            20 | 21 | 56 | 62 | 74 | 98 => &["damaged_by.pokemon", "times_attacked", "types_said.attacked_by"],
             22 => &["ate_berry"],
             23 | 41 => &["last_item"],
             24..=28 | 60 | 75 | 76 | 92 => &["ability_extra.a", "ability_extra.b", "ability_extra.item"],
@@ -524,7 +525,7 @@ fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
         }
         wrong.extend(root_state_differs(&case, fields(case.id)));
     }
-    assert!(text.lines().count() >= 97, "{} battles", text.lines().count());
+    assert!(text.lines().count() >= 98, "{} battles", text.lines().count());
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);

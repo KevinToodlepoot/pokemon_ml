@@ -2963,6 +2963,14 @@ impl Follower {
         if kind == "-heal" && effect_id(from) == "revivalblessing" {
             // The Pokémon picked has been revived: nobody is choosing any more.
             self.field.sides[side].slots.iter_mut().for_each(|s| s.retain(|c| c.0 != SlotCond::Revivalblessing));
+            // One that fainted where it still stands goes straight back in there, and the switch finds it in its
+            // own place with HP again: `clearVolatile` on it takes the blow that knocked it out with the rest.
+            if let Some((s, p)) = self.place_of(arg(2)) {
+                let idx = self.mon_ref(s, p).idx as usize;
+                if let Some(ko) = self.ko_hit[s].get_mut(idx) {
+                    *ko = None;
+                }
+            }
         }
         let Some(pos) = id.pos else {
             return Ok(());
