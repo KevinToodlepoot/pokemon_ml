@@ -63,6 +63,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::battle::{PokemonSet, boosted, modify};
 use crate::data::*;
+use crate::env::Counted;
 use crate::format::Format;
 use crate::shown::{ItemShown, UNKNOWN};
 use crate::state::*;
@@ -348,6 +349,21 @@ pub(crate) enum Event {
         first: MonRef,
         second: MonRef,
     },
+    /// An effect the Game counts ([`crate::env::Counts`], D97) began as the instance `uid`, with the
+    /// length it rolled, or Rest's sleep of three (`rest`). Nothing here reads it; the counts do.
+    Began {
+        uid: u16,
+        length: u8,
+        rest: bool,
+    },
+    /// Baton Pass handed a counted effect on: `from`'s instance `from_uid` is the one taking it's
+    /// `to_uid` now, with what was left of it.
+    Passed {
+        from: MonRef,
+        kind: Counted,
+        from_uid: u16,
+        to_uid: u16,
+    },
 }
 
 thread_local! {
@@ -418,6 +434,20 @@ fn queued(a: &Action) -> Queued {
 }
 
 impl Battle {
+    /// A counted effect began ([`Event::Began`]).
+    pub(crate) fn note_count_began(&self, uid: u16, length: u8, rest: bool) {
+        if on() {
+            LOG.with(|log| log.borrow_mut().push(Event::Began { uid, length, rest }));
+        }
+    }
+
+    /// Baton Pass handed a counted effect on ([`Event::Passed`]).
+    pub(crate) fn note_count_passed(&self, from: MonRef, kind: Counted, from_uid: u16, to_uid: u16) {
+        if on() {
+            LOG.with(|log| log.borrow_mut().push(Event::Passed { from, kind, from_uid, to_uid }));
+        }
+    }
+
     pub(crate) fn note_speed_switch(&self, r: MonRef) {
         if on() {
             LOG.with(|log| log.borrow_mut().push(Event::Switch { r }));
@@ -889,6 +919,7 @@ impl Speeds {
                         }
                     }
                 }
+                Event::Began { .. } | Event::Passed { .. } => {}
                 Event::Start { .. } => {
                     // This one moved after each of those that started before it.
                     for i in 0..j {

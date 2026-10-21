@@ -17,6 +17,7 @@
 #![allow(clippy::needless_range_loop, clippy::collapsible_if, clippy::collapsible_match, clippy::if_same_then_else)]
 
 use crate::data::*;
+use crate::env::Counted;
 use crate::state::*;
 use crate::trace;
 
@@ -1345,8 +1346,15 @@ impl Battle {
                         let kind = kept.as_slice()[i].kind;
                         self.next_uid = self.next_uid.wrapping_add(1);
                         if let Some(v) = kept.get_mut(kind) {
+                            let from_uid = v.st.uid;
                             v.st.order = 0;
                             v.st.uid = self.next_uid;
+                            // (A confusion or a binding goes on with what is left of it: its count with it, D97.)
+                            let counted =
+                                [Counted::Confusion, Counted::Trap].into_iter().find(|c| c.volatile() == Some(kind));
+                            if let Some(counted) = counted {
+                                self.note_count_passed(old, counted, from_uid, self.next_uid);
+                            }
                         }
                     }
                     let boosts = if via == SelfSwitch::CopyVolatile { self.mon(old).boosts } else { [0; 7] };

@@ -61,6 +61,7 @@ impl Battle {
             (Status::Slp, Ev::Start) => {
                 let t = [2u8, 3, 3][self.rand(3, "sleep turns") as usize];
                 self.mon_mut(holder).status_time = t;
+                self.note_count_began(self.mon(holder).status_st.uid, t, false);
                 Res::Undef
             }
             (Status::Slp, Ev::BeforeMove) => {
@@ -228,6 +229,8 @@ impl Battle {
                 let t = self.rand_range(min, 6, "confusion turns");
                 if let Some(v) = self.vol_mut(holder, VolKind::Confusion) {
                     v.data = t as u16;
+                    let uid = v.st.uid;
+                    self.note_count_began(uid, t as u8, false);
                 }
                 Res::Undef
             }
@@ -1095,6 +1098,8 @@ impl Battle {
                 let band = e.source.is_some_and(|s| self.has_item(s, it::BINDINGBAND));
                 if let Some(v) = self.vol_mut(holder, kind) {
                     v.data = if band { 6 } else { 8 };
+                    let (uid, length) = (v.st.uid, v.duration);
+                    self.note_count_began(uid, length, false);
                 }
                 Res::Undef
             }
@@ -1135,6 +1140,8 @@ impl Battle {
                 if let Some(v) = self.vol_mut(holder, kind) {
                     v.st.a = turns;
                     v.data = id;
+                    let uid = v.st.uid;
+                    self.note_count_began(uid, turns as u8, false);
                 }
                 Res::Undef
             }

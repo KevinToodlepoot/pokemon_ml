@@ -149,6 +149,12 @@ fn cmp_redirect(a: &Handler, b: &Handler) -> std::cmp::Ordering {
     })
 }
 
+/// Whether an item has a handler of its own for `ev` (as [`Battle::has_cb`] asks of it), for whoever
+/// reads a log rather than runs a battle: a flung berry is eaten if it has one for `Eat`.
+pub(crate) fn item_has_cb(item: u16, ev: Ev) -> bool {
+    ITEMS.get(item as usize).is_some_and(|d| find_cb(d.cbs, ev, Pre::On).is_some_and(|c| c.kind == CbKind::Fn))
+}
+
 fn find_cb(cbs: &'static [CbInfo], ev: Ev, pre: Pre) -> Option<&'static CbInfo> {
     cbs.iter().find(|c| c.ev == ev && c.pre == pre)
 }

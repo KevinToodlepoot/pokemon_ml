@@ -1575,11 +1575,12 @@ pub fn check_follow(c: &FollowCase, tally: &mut FollowTally) -> Outcome {
 /// that the parity gates can count it by name and hold everything else to the game.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unsaid {
-    /// A rampage (Outrage, Thrash, Petal Dance) that ran out without a word: its end adds a confusion
-    /// the holder takes silently (it is already confused, has Own Tempo, stands in Misty Terrain), so
-    /// the other side cannot tell it from a rampage with a turn to go, and nor can the holder's own
-    /// until a move request shows it free. Until the turn's end.
-    RampageEnded { side: usize, species: String },
+    /// A rampage (Outrage, Thrash, Petal Dance) after its second turn, which hit, where the end it may have
+    /// come to there would have been told to nobody: the end's confusion is taken silently (the holder is
+    /// already confused, has Own Tempo, stands grounded in Misty Terrain). Whether it rolled two turns and
+    /// is over, or three and has one to go, the other side cannot tell, and nor can the holder's own until
+    /// a move request shows it free or locked. Until the next turn's end, while the holder stays.
+    Rampage { side: usize, species: String },
     /// PP a move paid to Pressure when Showdown blanked the move's target (a failed Sucker Punch:
     /// `|move|X|Sucker Punch||[still]`), with a Pressure Pokémon and another without among the
     /// places it could have been aimed at: the other side cannot tell 1 PP from 2. For the battle.
@@ -1590,25 +1591,95 @@ pub enum Unsaid {
     /// the other; when the move fails with no animation (`blanked`), `[still]` takes the target off
     /// its line and no later line names it. Until it moves again.
     EncoreTarget { side: usize, species: String, blanked: bool },
+    /// The stats of a Pokémon of the other side that Power Split, Guard Split or Speed Swap mixed with
+    /// another's whose stats this side cannot know (its partner's): each one's mixed stats are not told
+    /// (Showdown's request shows a Pokémon's `baseStoredStats` to its own side alone). While it stays on
+    /// the field as the same forme.
+    StatsShared { side: usize, species: String },
+    /// Where a charging move of the viewer's own is aimed when another move called it (Copycat) with two
+    /// of the other side standing: Showdown drew one, and the charging turn's line names nobody. While it
+    /// holds the charge.
+    ChargeTarget { side: usize, species: String },
+    /// Whether a status move of the other side's worked, its line naming no target and failing with no word
+    /// of why, with a Substitute up on some of the Pokémon it may have been aimed at and not all: taken by a
+    /// Substitute it worked (Champions' hit loop counts the null as 0), and failed anywhere else. This
+    /// turn's result, and last turn's after the turn's end; while the Pokémon stays.
+    MoveResult { side: usize, species: String, this_turn: bool },
+    /// Which of two Pokémon that used up the same item this turn Pickup took it from: Showdown samples one,
+    /// and the log names neither. Neither side is told. While one of them has it as its last item and the
+    /// other none.
+    ItemTaken { side: usize, species: String, other_side: usize, other_species: String, item: String },
 }
 
 impl Unsaid {
     pub fn kind(&self) -> &'static str {
         match self {
-            Unsaid::RampageEnded { .. } => "rampage_ended",
+            Unsaid::Rampage { .. } => "rampage",
             Unsaid::PressurePp { .. } => "pressure_pp",
             Unsaid::EncoreTarget { blanked: false, .. } => "encore_target",
             Unsaid::EncoreTarget { blanked: true, .. } => "encore_blanked",
+            Unsaid::StatsShared { .. } => "stats_shared",
+            Unsaid::ChargeTarget { .. } => "charge_target",
+            Unsaid::MoveResult { .. } => "move_result",
+            Unsaid::ItemTaken { .. } => "item_taken",
         }
     }
+}
+
+/// Whether an export's entry ([`crate::env::Untold`]) lists the case `u`: the same kind, side and Pokémon
+/// (by the species at its team index in the export), and for PP the same move.
+fn case_listed(u: &Unsaid, e: &crate::env::Untold, species_at: &dyn Fn(u8, u8) -> Option<&'static str>) -> bool {
+    use crate::env::Untold;
+    match (u, e) {
+        (Unsaid::Rampage { side: s, species }, Untold::Rampage { side: t, team_index })
+        | (Unsaid::EncoreTarget { side: s, species, .. }, Untold::EncoreTarget { side: t, team_index, .. })
+        | (Unsaid::StatsShared { side: s, species }, Untold::StatsShared { side: t, team_index })
+        | (Unsaid::ChargeTarget { side: s, species }, Untold::ChargeTarget { side: t, team_index, .. }) => {
+            *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str())
+        }
+        (
+            Unsaid::ItemTaken { side: s, species, other_side: s2, other_species, .. },
+            Untold::ItemTaken { side: t, team_index, other_side: t2, other_index },
+        ) => {
+            let at = |s: &usize, sp: &str, t: &u8, i: &u8| *s == *t as usize && species_at(*t, *i) == Some(sp);
+            (at(s, species, t, team_index) && at(s2, other_species, t2, other_index))
+                || (at(s, species, t2, other_index) && at(s2, other_species, t, team_index))
+        }
+        (Unsaid::MoveResult { side: s, species, this_turn }, Untold::MoveResult { side: t, team_index, this_turn: u }) => {
+            *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()) && this_turn == u
+        }
+        (Unsaid::PressurePp { side: s, species, mv }, Untold::PressurePp { side: t, team_index, move_id, .. }) => {
+            *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()) && mv == move_id
+        }
+        _ => false,
+    }
+}
+
+/// The entries of an export's list of what its player cannot tell ([`crate::env::Untold`]) that name no case of
+/// it the game's history knows of (`cases`, the walk's [`UnsaidTracker::for_viewer`]): each entry is matched by
+/// kind, side and Pokémon, found by its species in the export's battle `b`.
+pub fn unrecognised<'a>(
+    untold: &'a [crate::env::Untold],
+    cases: &[Unsaid],
+    b: &Battle,
+) -> Vec<&'a crate::env::Untold> {
+    let species_at = |s: u8, idx: u8| -> Option<&'static str> {
+        ((s as usize) < 2 && (idx as usize) < b.sides[s as usize].n as usize)
+            .then(|| SPECIES[b.mon(crate::MonRef { side: s, idx }).set_species as usize].id)
+    };
+    untold.iter().filter(|e| !cases.iter().any(|u| case_listed(u, e, &species_at))).collect()
 }
 
 /// The side a case of [`Unsaid`] is about.
 fn u_side(u: &Unsaid) -> usize {
     match u {
-        Unsaid::RampageEnded { side, .. } | Unsaid::EncoreTarget { side, .. } | Unsaid::PressurePp { side, .. } => {
-            *side
-        }
+        Unsaid::Rampage { side, .. }
+        | Unsaid::EncoreTarget { side, .. }
+        | Unsaid::PressurePp { side, .. }
+        | Unsaid::StatsShared { side, .. }
+        | Unsaid::ChargeTarget { side, .. }
+        | Unsaid::MoveResult { side, .. }
+        | Unsaid::ItemTaken { side, .. } => *side,
     }
 }
 
@@ -1627,6 +1698,31 @@ pub struct UnsaidTracker {
     now: Vec<(usize, Unsaid)>,
     /// The move each place was last chosen to use (a move request's choice), if it was a move.
     chose: [[Option<u16>; crate::state::ACTIVE]; 2],
+    /// By place: which turn of its rampage the Pokémon there last used (1, 2, 3; 0: none).
+    rampage_turn: [[u8; crate::state::ACTIVE]; 2],
+    /// By place: confused at the last decision.
+    confused: [[bool; crate::state::ACTIVE]; 2],
+    /// Misty Terrain up at the last decision.
+    misty: bool,
+    /// Each rampage case's holder (side, team index) and the turns' ends since its second turn: it holds
+    /// at a decision after one, and is over at the second.
+    rampages: Vec<(usize, u8, u8)>,
+    /// This decision is a move request (where a Pokémon's own side is shown whether it is locked).
+    moving: bool,
+    /// Encores put on a Pokémon before it moved this turn, whose move has not run yet (it may run after a
+    /// request in the middle of the turn): (side, place, both of the other side standing at the Encore
+    /// line, one of them fainted since).
+    encored: Vec<(usize, usize, bool, bool)>,
+    /// By place: the Pokémon there has acted this turn (a move or a `cant` line).
+    acted: [[bool; crate::state::ACTIVE]; 2],
+    /// By side and team index: Pressure at work at the last decision, from which a step's lines follow it
+    /// (the step's end may have another ability on the Pokémon, or its own back after a faint,
+    /// `Pokemon#clearVolatile`).
+    pressure: [[bool; crate::state::MAX_TEAM]; 2],
+    /// By place: a Substitute up at the last decision.
+    subs: [[bool; crate::state::ACTIVE]; 2],
+    /// The items used up this turn, by whom (side, team index): what Pickup may pick up.
+    used_turn: Vec<(usize, u8, u16)>,
 }
 
 impl UnsaidTracker {
@@ -1639,6 +1735,14 @@ impl UnsaidTracker {
         };
         let pos = (*b.get(2)? as char).to_digit(36)?.checked_sub(10)? as usize;
         (pos < crate::state::ACTIVE && b.get(3) == Some(&b':')).then_some((side, pos))
+    }
+
+    /// An Ally Switch's `|swap|X|N`: the side, the place it left and the one it took (whoever stood there
+    /// takes the place it left).
+    fn swapped(p: &[&str]) -> Option<(usize, usize, usize)> {
+        let (s, pos) = p.get(2).and_then(|w| Self::place(w)).filter(|_| p.get(1) == Some(&"swap"))?;
+        let to = p.get(3)?.parse::<usize>().ok().filter(|&to| to < crate::state::ACTIVE)?;
+        Some((s, pos, to))
     }
 
     /// After a step: `game` as it now is, `log` the step's lines, `choices` the step's choices.
@@ -1687,6 +1791,8 @@ impl UnsaidTracker {
                 && let Some((s, pos)) = p.get(2).and_then(|w| Self::place(w))
             {
                 here[s][pos] = None;
+            } else if let Some((s, pos, to)) = Self::swapped(p) {
+                here[s].swap(pos, to);
             }
             who.push(here);
         }
@@ -1694,9 +1800,15 @@ impl UnsaidTracker {
             who[k][s][pos]
                 .map(|i| SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id.to_string())
         };
-        self.now.retain(|(viewer, u)| match u {
-            // (Its own side sees it free once a move request lists its moves.)
-            Unsaid::RampageEnded { side, .. } => !upkept && (viewer != side || !moving),
+        let _ = upkept;
+        self.moving = moving;
+        self.now.retain(|(_, u)| match u {
+            // (Rampages and split stats are kept by the passes below.)
+            Unsaid::Rampage { .. }
+            | Unsaid::StatsShared { .. }
+            | Unsaid::ChargeTarget { .. }
+            | Unsaid::MoveResult { .. }
+            | Unsaid::ItemTaken { .. } => true,
             Unsaid::EncoreTarget { side, species: sp, .. } => !lines.iter().enumerate().any(|(k, p)| {
                 p.get(1) == Some(&"move")
                     && p.get(2)
@@ -1705,60 +1817,297 @@ impl UnsaidTracker {
             }),
             Unsaid::PressurePp { .. } => true,
         });
-        for side in 0..2 {
-            for pos in 0..ACTIVE {
-                let r = b.active(side, pos);
-                let (Some(r), Some((idx, Some(left)))) = (at(r), self.before[side][pos]) else { continue };
-                let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
-                let used = lines.iter().position(|p| {
-                    p.get(1) == Some(&"move")
-                        && p.get(2).is_some_and(|w| w.starts_with(&tag))
-                        && p.iter().any(|x| x.strip_prefix("[from]").is_some_and(|f| f.trim() == "lockedmove"))
-                });
-                // Its last turn: the lock's count, less the turns' ends before the move, is down to one,
-                // so the lock ends with the move and its confusion would say so (`lockedmove`'s `onEnd`).
-                let last_turn =
-                    used.is_some_and(|k| left - log[..k].iter().filter(|l| *l == "|upkeep").count() as i16 <= 1);
-                let fatigue = lines.iter().any(|p| {
-                    p.get(1) == Some(&"-start")
-                        && p.get(2).is_some_and(|w| w.starts_with(&tag))
-                        && p.get(3) == Some(&"confusion")
-                        && p.contains(&"[fatigue]")
-                });
-                if r.idx == idx && last_turn && !fatigue && !b.vols(r).has(VolKind::Lockedmove) {
-                    let u = Unsaid::RampageEnded { side, species: species(r) };
-                    if !moving {
-                        self.now.push((side, u.clone()));
+        // Rampages and split stats, line by line: a rampage's turns as its holder's lines use them, whether its
+        // second hit, and whether the end it may come to there would be silent (on the game's own state as
+        // it stood: confused, Own Tempo at work, grounded in Misty Terrain); the turns' ends since; who
+        // leaves the field (and a forme change, which works stats out afresh).
+        let mut confused = self.confused;
+        let mut misty = self.misty;
+        let mut ground = *b;
+        for (k, p) in lines.iter().enumerate() {
+            let kind = p.get(1).copied().unwrap_or("");
+            let place = p.get(2).and_then(|w| Self::place(w));
+            if let Some((s, pos, to)) = Self::swapped(p) {
+                self.rampage_turn[s].swap(pos, to);
+                confused[s].swap(pos, to);
+            }
+            match kind {
+                "-start" if p.get(3) == Some(&"confusion") => {
+                    if let Some((s, q)) = place {
+                        confused[s][q] = true;
                     }
-                    self.now.push((1 - side, u));
                 }
+                "-end" if p.get(3) == Some(&"confusion") => {
+                    if let Some((s, q)) = place {
+                        confused[s][q] = false;
+                    }
+                }
+                "-fieldstart" | "-fieldend" if p.get(2) == Some(&"move: Misty Terrain") => misty = kind == "-fieldstart",
+                "-fieldstart" if p.get(2).is_some_and(|w| w.ends_with("Terrain")) => misty = false,
+                "upkeep" => {
+                    for c in &mut self.rampages {
+                        c.2 += 1;
+                    }
+                    // (Asleep at the turn's end, it is let go of its lock without a word, and is seen asleep.)
+                    self.rampages.retain(|&(s, i, ups)| {
+                        ups < 2 && !(ups == 1 && b.mon(crate::MonRef { side: s as u8, idx: i }).status == crate::data::Status::Slp)
+                    });
+                }
+                "switch" | "drag" | "faint" | "detailschange" | "-formechange" | "-mega" | "replace" => {
+                    if let Some((s, q)) = place {
+                        let left = who[k.saturating_sub(1)][s][q].or(self.standing[s][q]);
+                        if matches!(kind, "switch" | "drag" | "faint") {
+                            self.rampage_turn[s][q] = 0;
+                            confused[s][q] = false;
+                            self.rampages.retain(|&(s2, i, _)| !(s2 == s && Some(i) == left));
+                        }
+                        // (Its stats are its own again, or worked out afresh for its forme.)
+                        if let Some(i) = left.or(who[k][s][q]) {
+                            let sp = SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id;
+                            self.now.retain(|(_, u)| !matches!(u, Unsaid::StatsShared { side: s2, species: x } if *s2 == s && x == sp));
+                        }
+                    }
+                }
+                "-activate"
+                    if matches!(p.get(3).copied(), Some("move: Power Split" | "move: Guard Split" | "move: Speed Swap")) =>
+                {
+                    // Between two of one side: each's mixed stats are untold to the other side. Between one of each
+                    // side: both's are untold to both (each side knows its own Pokémon's stat, not the other's).
+                    let of = p.iter().find_map(|x| x.strip_prefix("[of] ")).and_then(|w| Self::place(w.trim()));
+                    if let (Some((s, q)), Some((s2, q2))) = (place, of) {
+                        let named = |s3: usize, q3: usize| {
+                            who[k][s3][q3].map(|i| {
+                                SPECIES[b.mon(crate::MonRef { side: s3 as u8, idx: i }).set_species as usize].id.to_string()
+                            })
+                        };
+                        // (Two of one side's whose stats that side knew, unless one of them already had stats beyond
+                        // it, which the split hands on.)
+                        let beyond = [(s, q), (s2, q2)].iter().any(|&(s3, q3)| {
+                            named(s3, q3).is_some_and(|sp| {
+                                self.now.iter().any(|(v, x)| *v == s3 && *x == Unsaid::StatsShared { side: s3, species: sp.clone() })
+                            })
+                        });
+                        for (s3, q3) in [(s, q), (s2, q2)] {
+                            if let Some(i) = who[k][s3][q3] {
+                                let sp = SPECIES[b.mon(crate::MonRef { side: s3 as u8, idx: i }).set_species as usize].id;
+                                let u = Unsaid::StatsShared { side: s3, species: sp.to_string() };
+                                for viewer in if s == s2 && !beyond { 1 - s3..2 - s3 } else { 0..2 } {
+                                    if !self.now.iter().any(|(v, x)| *v == viewer && *x == u) {
+                                        self.now.push((viewer, u.clone()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "move" => {
+                    let Some((s, q)) = place else { continue };
+                    let from_lock = p.iter().any(|x| x.strip_prefix("[from]").is_some_and(|f| f.trim() == "lockedmove"));
+                    let rampage = crate::data::move_id(&crate::data::to_id(p.get(3).copied().unwrap_or("")))
+                        .is_some_and(|m| MOVES[m as usize].self_volatile == Some(VolKind::Lockedmove));
+                    self.rampage_turn[s][q] = if from_lock {
+                        self.rampage_turn[s][q].saturating_add(1)
+                    } else if rampage {
+                        1
+                    } else {
+                        0
+                    };
+                    let Some(i) = who[k][s][q] else { continue };
+                    if from_lock && self.rampage_turn[s][q] == 2 {
+                        let r = crate::MonRef { side: s as u8, idx: i };
+                        let tag = format!("{}{}", ["p1", "p2"][s], (b'a' + q as u8) as char);
+                        // It hit: a blow on a target (or its substitute) before the next action.
+                        let hit = lines[k + 1..]
+                            .iter()
+                            .take_while(|x| !matches!(x.get(1).copied(), Some("move" | "cant" | "upkeep" | "switch" | "drag")))
+                            .any(|x| match x.get(1).copied() {
+                                Some("-damage") => {
+                                    x.iter().all(|y| !y.starts_with("[from]")) && !x.get(2).is_some_and(|w| w.starts_with(&tag))
+                                }
+                                Some("-activate") => x.get(3).is_some_and(|w| w.ends_with("Substitute")),
+                                Some("-end") => x.get(3).is_some_and(|w| w.ends_with("Substitute")),
+                                _ => false,
+                            });
+                        let m = b.mon(r);
+                        let own_tempo = m.ability == ab::OWNTEMPO && !b.vols(r).has(VolKind::Gastroacid);
+                        let silent = confused[s][q] || own_tempo || (misty && ground.is_grounded(r, false));
+                        if hit && silent {
+                            let u = Unsaid::Rampage { side: s, species: species(r) };
+                            self.rampages.retain(|&(s2, i2, _)| (s2, i2) != (s, i));
+                            self.rampages.push((s, i, 0));
+                            for viewer in 0..2 {
+                                if !self.now.iter().any(|(v, x)| *v == viewer && *x == u) {
+                                    self.now.push((viewer, u.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
+        // (A rampage case lasts while its holder's count of turns' ends since its second turn is one.)
+        let live: Vec<(usize, String)> = self
+            .rampages
+            .iter()
+            .map(|&(s, i, _)| (s, SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id.to_string()))
+            .collect();
+        self.now.retain(|(_, u)| match u {
+            Unsaid::Rampage { side, species } => live.iter().any(|(s, sp)| s == side && sp == species),
+            _ => true,
+        });
+        let mut subs = self.subs;
+        let mut pressing = self.pressure;
         for (k, p) in lines.iter().enumerate() {
+            if p.get(1) == Some(&"turn") {
+                // (A new turn: nobody has acted, and an Encore's move that never ran is over; this turn's
+                // results are last turn's.)
+                (self.acted, self.encored, self.used_turn) = ([[false; ACTIVE]; 2], Vec::new(), Vec::new());
+                self.now.retain_mut(|(_, u)| match u {
+                    Unsaid::MoveResult { this_turn, .. } => std::mem::replace(this_turn, false),
+                    _ => true,
+                });
+            }
+            if let Some((s, pos, to)) = Self::swapped(p) {
+                subs[s].swap(pos, to);
+                self.acted[s].swap(pos, to);
+                for e in self.encored.iter_mut().filter(|e| e.0 == s) {
+                    e.1 = if e.1 == pos { to } else if e.1 == to { pos } else { e.1 };
+                }
+            }
             let Some((side, pos)) = p.get(2).and_then(|w| Self::place(w)) else { continue };
+            // Pressure as it stands at this line: one coming in says it has it (`-ability|X|Pressure`), Gastro
+            // Acid takes it away (`-endability`), another ability said takes its place, as Skill Swap's swap and
+            // Transform's copy do.
+            if let Some(i) = who[k][side][pos] {
+                let i = i as usize;
+                let of = p.iter().find_map(|x| x.strip_prefix("[of] ")).and_then(|w| Self::place(w.trim()));
+                let of = of.and_then(|(s2, q2)| who[k][s2][q2].map(|j| (s2, j as usize)));
+                match p.get(1).copied() {
+                    Some("switch" | "drag") | Some("-endability") => pressing[side][i] = false,
+                    Some("-ability") => pressing[side][i] = p.get(3) == Some(&"Pressure"),
+                    Some("-activate") if p.get(3).is_some_and(|w| w.ends_with("Skill Swap")) => {
+                        pressing[side][i] = p.get(4) == Some(&"Pressure");
+                        if let Some((s2, j)) = of {
+                            pressing[s2][j] = p.get(5) == Some(&"Pressure");
+                        }
+                    }
+                    Some("-transform") => {
+                        if let Some(&(s2, q2)) = p.get(3).and_then(|w| Self::place(w)).as_ref()
+                            && let Some(j) = who[k][s2][q2]
+                        {
+                            pressing[side][i] = pressing[s2][j as usize];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            match p.get(1).copied() {
+                Some("-start") if p.get(3) == Some(&"Substitute") => subs[side][pos] = true,
+                Some("-end") if p.get(3) == Some(&"Substitute") => subs[side][pos] = false,
+                // (Baton Pass and Shed Tail hand a Substitute on.)
+                Some("switch" | "drag")
+                    if !p.iter().any(|x| matches!(*x, "[from] Baton Pass" | "[from] Shed Tail")) =>
+                {
+                    subs[side][pos] = false
+                }
+                Some("faint") => subs[side][pos] = false,
+                _ => {}
+            }
+            let from_ = p.iter().find_map(|x| x.strip_prefix("[from]")).map_or("", str::trim);
+            let item = crate::data::item_id(&crate::data::to_id(p.get(3).copied().unwrap_or("")));
+            if p.get(1) == Some(&"-enditem")
+                && let (Some(item), Some(i)) = (item, who[k][side][pos])
+            {
+                // Used up (`lastItem` set): not taken, swapped or burnt up by another's move or ability, not a
+                // popped Air Balloon, not a berry Cud Chew eats again (the follower's `-enditem` rule).
+                let taken = from_.starts_with("stealeat")
+                    || matches!(
+                        from_,
+                        "move: Knock Off"
+                            | "move: Thief"
+                            | "move: Covet"
+                            | "move: Incinerate"
+                            | "move: Corrosive Gas"
+                            | "move: Trick"
+                            | "move: Switcheroo"
+                            | "ability: Pickpocket"
+                    )
+                    || (item == crate::data::it::AIRBALLOON && from_.is_empty());
+                let again = k > 0
+                    && lines[k - 1].get(1) == Some(&"-activate")
+                    && lines[k - 1].get(3) == Some(&"ability: Cud Chew");
+                if !taken && !again {
+                    self.used_turn.push((side, i, item));
+                }
+            }
+            if p.get(1) == Some(&"-item")
+                && from_ == "ability: Pickup"
+                && let Some(item) = item
+            {
+                // From one of the Pokémon on the field that used it up this turn, the holder aside: two, and
+                // nobody is told which.
+                let mut from: Vec<(usize, u8)> = self
+                    .used_turn
+                    .iter()
+                    .filter(|&&(s, i, it)| it == item && (s, Some(i)) != (side, who[k][side][pos]))
+                    .filter(|&&(s, i, _)| (0..ACTIVE).any(|q| who[k][s][q] == Some(i)))
+                    .map(|&(s, i, _)| (s, i))
+                    .collect();
+                from.dedup();
+                if let [(s, i), (s2, i2)] = from[..] {
+                    let sp = |s: usize, i: u8| SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id;
+                    let u = Unsaid::ItemTaken {
+                        side: s,
+                        species: sp(s, i).to_string(),
+                        other_side: s2,
+                        other_species: sp(s2, i2).to_string(),
+                        item: crate::data::ITEMS[item as usize].id.to_string(),
+                    };
+                    for viewer in 0..2 {
+                        self.now.push((viewer, u.clone()));
+                    }
+                }
+            }
+            if p.get(1) == Some(&"faint") {
+                // (The place is empty from its faint line on.)
+                for e in self.encored.iter_mut().filter(|e| e.0 == 1 - side) {
+                    e.3 = true;
+                }
+            }
             let Some(user) = who[k][side][pos].map(|i| crate::MonRef { side: side as u8, idx: i }) else { continue };
             let from = p.iter().find_map(|x| x.strip_prefix("[from]")).map(str::trim);
             // (Only a move that pays PP pays Pressure's: its own, or one another called, which its caller
             // pays for; not one Magic Bounce sends back, nor a rampage's later turns.)
             let pays = from.is_none_or(|f| f.starts_with("move: "));
-            if p.get(1) == Some(&"move") && p.get(4) == Some(&"") && p.contains(&"[still]") && pays {
-                // A blanked target: which of the other side's could it have been aimed at, and which have Pressure.
-                let Some(mv) = crate::data::move_id(&crate::data::to_id(p[3])) else { continue };
-                if !matches!(
+            // (A move at one target only: the others draw no Pressure doubt, and go on to the checks below.)
+            let single = crate::data::move_id(&crate::data::to_id(p.get(3).copied().unwrap_or(""))).filter(|&mv| {
+                matches!(
                     MOVES[mv as usize].target,
-                    crate::data::Target::Normal | crate::data::Target::AdjacentFoe | crate::data::Target::Any
-                ) {
-                    continue;
+                    crate::data::Target::Normal
+                        | crate::data::Target::AdjacentFoe
+                        | crate::data::Target::Any
+                        | crate::data::Target::Scripted
+                        | crate::data::Target::RandomNormal
+                )
+            });
+            if p.get(1) == Some(&"move")
+                && p.get(4) == Some(&"")
+                && p.contains(&"[still]")
+                && pays
+                && let Some(mv) = single
+            {
+                // A blanked target: which of the other side's could it have been aimed at, and which have Pressure.
+                let mut foes: Vec<bool> =
+                    (0..ACTIVE).filter_map(|q| who[k][1 - side][q]).map(|i| pressing[1 - side][i as usize]).collect();
+                // (Or at its partner, which Pressure never charges for; not a move the game aims at random at a foe; a
+                // charge even at its partner's empty place.)
+                let charge = VolKind::named(MOVES[mv as usize].id).is_some_and(|k| crate::follow::CHARGING.contains(&k));
+                if matches!(MOVES[mv as usize].target, crate::data::Target::Normal | crate::data::Target::Any)
+                    && (charge || who[k][side][1 - pos].is_some())
+                {
+                    foes.push(false);
                 }
-                let foes: Vec<bool> = (0..ACTIVE)
-                    .filter_map(|q| who[k][1 - side][q])
-                    .map(|i| {
-                        // (Read off the Pokémon as the step left it, which may have fainted since: its
-                        // ability, unless Gastro Acid has it suppressed.)
-                        let f = crate::MonRef { side: (1 - side) as u8, idx: i };
-                        b.mon(f).ability == ab::PRESSURE && !b.vols(f).has(VolKind::Gastroacid)
-                    })
-                    .collect();
                 if foes.iter().any(|&p| p) && foes.iter().any(|&p| !p) {
                     // (A move another called, Copycat's say, has its caller pay: `[from] move: Copycat`.)
                     let caller = p
@@ -1774,36 +2123,105 @@ impl UnsaidTracker {
                     }
                 }
             }
-            if p.get(1) == Some(&"-start") && p.get(3) == Some(&"Encore") {
-                // Encored before it moved this turn, with a single-target move other than the one it
-                // chose, with both of the other side's standing (Showdown draws one, `getRandomTarget`):
-                // where the draw sent it is not shown after one of the other side's fainted, nor when the
-                // move's line names nobody (`[still]`) and no later line of the move names it.
-                let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
-                let Some(m) = lines[k..]
+            if p.get(1) == Some(&"move") {
+                // A new action: its result is this one's.
+                let sp = species(user);
+                self.now.retain(|(_, u)| !matches!(u, Unsaid::MoveResult { side: s, species: x, this_turn: true } if *s == side && *x == sp));
+            }
+            let d = crate::data::move_id(&crate::data::to_id(p.get(3).copied().unwrap_or(""))).map(|mv| (mv, &MOVES[mv as usize]));
+            if p.get(1) == Some(&"move")
+                && p.get(4) == Some(&"")
+                && p.contains(&"[still]")
+                && let Some((mv, d)) = d
+                && d.category == crate::data::Category::Status
+                && d.flags & crate::data::F_BYPASSSUB == 0
+                && !crate::follow::not_fail_on_hit(mv, "")
+                && matches!(
+                    d.target,
+                    crate::data::Target::Normal
+                        | crate::data::Target::AdjacentFoe
+                        | crate::data::Target::Any
+                        | crate::data::Target::AdjacentAlly
+                        | crate::data::Target::AdjacentAllyOrSelf
+                )
+            {
+                // A status move whose line names no target, failing with no word of why (`|-fail|X`) before the
+                // next action: a Substitute took it, or it failed (the move's own `onTryHit`, which runs first,
+                // prints the same). A case wherever one it may have been aimed at had a Substitute up: the
+                // follower tells the rest apart by the move's `TryHit` and lists only what it cannot (what it
+                // tells apart, it has as the game does).
+                let rest = &lines[k + 1..];
+                let end = rest
                     .iter()
-                    .position(|q| q.get(1) == Some(&"move") && q.get(2).is_some_and(|w| w.starts_with(&tag)))
-                else {
-                    continue;
-                };
-                let line = &lines[k + m];
+                    .position(|q| matches!(q.get(1).copied(), Some("move" | "cant" | "switch" | "drag" | "upkeep" | "turn" | "")))
+                    .unwrap_or(rest.len());
+                let failed = rest[..end].iter().any(|q| {
+                    q.get(1) == Some(&"-fail")
+                        && q.get(2).and_then(|w| Self::place(w)) == Some((side, pos))
+                        && q.get(3).is_none_or(|w| w.is_empty())
+                });
+                let aims: Vec<(usize, usize)> = (0..2)
+                    .flat_map(|s| (0..ACTIVE).map(move |q| (s, q)))
+                    .filter(|&(s, q)| (s, q) != (side, pos) && who[k][s][q].is_some())
+                    .filter(|&(s, _)| d.target != crate::data::Target::AdjacentFoe || s != side)
+                    .filter(|&(s, _)| {
+                        !matches!(d.target, crate::data::Target::AdjacentAlly | crate::data::Target::AdjacentAllyOrSelf)
+                            || s == side
+                    })
+                    .collect();
+                let n = aims.iter().filter(|&&(s, q)| subs[s][q]).count();
+                if failed && n > 0 {
+                    let u = Unsaid::MoveResult { side, species: species(user), this_turn: true };
+                    // (Its own side too where a Copycat or a Sleep Talk aimed it at random.)
+                    let called = matches!(from, Some("move: Copycat" | "move: Sleep Talk"));
+                    for viewer in [1 - side, side].into_iter().take(if called { 2 } else { 1 }) {
+                        if !self.now.iter().any(|(v, x)| *v == viewer && *x == u) {
+                            self.now.push((viewer, u.clone()));
+                        }
+                    }
+                }
+            }
+            if p.get(1) == Some(&"move")
+                && from.is_some_and(|f| f.starts_with("move: "))
+                && (0..ACTIVE).all(|q| who[k][1 - side][q].is_some())
+                && crate::data::move_id(&crate::data::to_id(p[3])).is_some_and(|mv| {
+                    VolKind::named(MOVES[mv as usize].id).is_some_and(|v| crate::follow::CHARGING.contains(&v))
+                })
+            {
+                // A charging move another called, with two of the other side standing: Showdown drew where it
+                // goes. (Kept below while the charge is held: one let off at once holds none.)
+                let u = Unsaid::ChargeTarget { side, species: species(user) };
+                self.now.retain(|(v, x)| !(*v == side && *x == u));
+                self.now.push((side, u));
+            }
+            if p.get(1) == Some(&"-start") && p.get(3) == Some(&"Encore") && !self.acted[side][pos] {
+                // Encored before it moved this turn: its queued move is put in again, at a target drawn
+                // from the other side's if both stand (`getRandomTarget`), which runs later this turn.
+                let both = (0..ACTIVE).all(|q| who[k][1 - side][q].is_some());
+                self.encored.retain(|e| (e.0, e.1) != (side, pos));
+                self.encored.push((side, pos, both, false));
+            }
+            if matches!(p.get(1).copied(), Some("move" | "cant")) {
+                self.acted[side][pos] = true;
+            }
+            if p.get(1) == Some(&"move")
+                && let Some(at) = self.encored.iter().position(|e| (e.0, e.1) == (side, pos))
+            {
+                let (_, _, both, fell) = self.encored.remove(at);
+                let tag = format!("{}{}", ["p1", "p2"][side], (b'a' + pos as u8) as char);
+                let line = p;
                 let single = crate::data::move_id(&crate::data::to_id(line[3])).is_some_and(|mv| {
                     matches!(
                         MOVES[mv as usize].target,
                         crate::data::Target::Normal | crate::data::Target::AdjacentFoe | crate::data::Target::Any
                     )
                 });
-                let other = ["p1", "p2"][1 - side];
-                let fell = lines[k..k + m]
-                    .iter()
-                    .any(|q| q.get(1) == Some(&"faint") && q.get(2).is_some_and(|w| w.starts_with(other)));
                 let used = crate::data::move_id(&crate::data::to_id(line[3]));
                 let replaced = used.is_some() && used != self.chose[side][pos];
-                let both = (0..ACTIVE).all(|q| who[k][1 - side][q].is_some());
                 let blank = line.get(4).is_none_or(|w| w.is_empty());
                 // The rest of the move: up to the next action, the turn's end or its upkeep (an Armor
                 // Tail's `cant` names the target with `[of]`, and is the move's own).
-                let rest = &lines[k + m + 1..];
+                let rest = &lines[k + 1..];
                 let end = rest
                     .iter()
                     .position(|q| match q.get(1).copied() {
@@ -1822,18 +2240,11 @@ impl UnsaidTracker {
                     Some("cant") => q.iter().filter_map(|x| x.strip_prefix("[of] ")).find_map(foe),
                     _ => None,
                 });
-                // (After one of the other side's fell, only where the draw went to the one that fell: then
-                // the place the game keeps is not the one the log names, on the move's line or a later
-                // one. An Encore onto the move already chosen draws nothing.)
-                let named = line.get(4).and_then(|w| Self::place(w)).map(|(s, q)| {
-                    let loc = q as i8 + 1;
-                    if s == side { -loc } else { loc }
-                });
-                let kept = b.mon(user).last_move_loc;
-                if single && fell && named.or(revealed).is_some_and(|loc| loc != kept) {
+                // Not told where the draw went: after one of the other side fell (the log names the one left,
+                // or Showdown's second draw), or with nothing naming it (`[still]`, no later line).
+                if single && replaced && both && fell {
                     self.now.push((side, Unsaid::EncoreTarget { side, species: species(user), blanked: false }));
-                }
-                if single && replaced && both && blank && revealed.is_none() {
+                } else if single && replaced && both && blank && revealed.is_none() {
                     self.now.push((side, Unsaid::EncoreTarget { side, species: species(user), blanked: true }));
                 }
             }
@@ -1843,13 +2254,67 @@ impl UnsaidTracker {
                 self.before[side][pos] =
                     at(b.active(side, pos)).map(|r| (r.idx, b.vols(r).get(VolKind::Lockedmove).map(|c| c.st.a)));
                 self.standing[side][pos] = at(b.active(side, pos)).map(|r| r.idx);
+                self.confused[side][pos] = at(b.active(side, pos)).is_some_and(|r| b.vols(r).has(VolKind::Confusion));
+            }
+        }
+        self.misty = b.field.terrain.kind == crate::data::Terrain::Mistyterrain;
+        for side in 0..2 {
+            for pos in 0..ACTIVE {
+                self.subs[side][pos] = at(b.active(side, pos)).is_some_and(|r| b.vols(r).has(VolKind::Substitute));
+            }
+        }
+        // A called charge's aim is untold while its holder is on the field charging; a move's result while it
+        // stays.
+        let standing = |side: usize, sp: &str| {
+            (0..ACTIVE).any(|q| at(b.active(side, q)).is_some_and(|r| SPECIES[b.mon(r).set_species as usize].id == sp))
+        };
+        let last_item = |side: usize, sp: &str| {
+            (0..b.sides[side].n).find_map(|i| {
+                let m = b.mon(crate::MonRef { side: side as u8, idx: i });
+                (SPECIES[m.set_species as usize].id == sp).then(|| crate::data::ITEMS[m.last_item as usize].id)
+            })
+        };
+        self.now.retain(|(_, u)| match u {
+            // (While one has it as its last item and the other none.)
+            Unsaid::ItemTaken { side, species, other_side, other_species, item } => {
+                let pair = [last_item(*side, species), last_item(*other_side, other_species)];
+                pair.contains(&Some(item.as_str())) && pair.contains(&Some(""))
+            }
+            Unsaid::MoveResult { side, species, .. } => standing(*side, species),
+            // (Off the field the place is read by nothing: its last move goes with it.)
+            Unsaid::EncoreTarget { side, species, .. } => standing(*side, species),
+            Unsaid::ChargeTarget { side, species: sp } => (0..ACTIVE).any(|q| {
+                at(b.active(*side, q)).is_some_and(|r| {
+                    SPECIES[b.mon(r).set_species as usize].id == sp.as_str()
+                        && crate::follow::CHARGING.iter().any(|&v| b.vols(r).has(v))
+                })
+            }),
+            _ => true,
+        });
+        for side in 0..2 {
+            for i in 0..b.sides[side].n {
+                let r = crate::MonRef { side: side as u8, idx: i };
+                self.pressure[side][i as usize] = b.mon(r).ability == ab::PRESSURE && !b.vols(r).has(VolKind::Gastroacid);
             }
         }
     }
 
     /// What `viewer` has not been told at this decision.
     pub fn for_viewer(&self, viewer: usize) -> Vec<Unsaid> {
-        self.now.iter().filter(|(v, _)| *v == viewer).map(|(_, u)| u.clone()).collect()
+        self.now
+            .iter()
+            .filter(|(v, _)| *v == viewer)
+            .filter(|(v, u)| match u {
+                // (After one turn's end since its second turn; and its own side is shown it at a move request.)
+                Unsaid::Rampage { side, species } => {
+                    !(*side == *v && self.moving)
+                        && self.rampages.iter().any(|&(s, _, ups)| s == *side && ups == 1)
+                        && !species.is_empty()
+                }
+                _ => true,
+            })
+            .map(|(_, u)| u.clone())
+            .collect()
     }
 
     /// The game at the start of the battle, before any step.
@@ -1882,6 +2347,8 @@ pub struct ExportTally {
     /// Exports that leave out something the game's history shows their player was not told: each
     /// such case must be in the export's list (D94). Failed.
     pub untold_missing: usize,
+    /// Entries of an export's `untold` that name no case its player could not tell (over-listing).
+    pub untold_unrecognised: usize,
     /// Exact HP the export has worked out ([`crate::env::HpSeen`]), and those the game says are wrong:
     /// a percentage and bar its true max HP cannot show, or an HP it no longer has though marked `now`.
     pub hp_seen: usize,
@@ -1904,6 +2371,7 @@ impl Default for ExportTally {
             unsaid: Default::default(),
             untold: Default::default(),
             untold_missing: 0,
+            untold_unrecognised: 0,
             hp_seen: 0,
             hp_seen_wrong: 0,
             first: Vec::new(),
@@ -1971,6 +2439,9 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     crate::env::Untold::PressurePp { .. } => "pressure_pp",
                     crate::env::Untold::EncoreTarget { .. } => "encore_target",
                     crate::env::Untold::StatsShared { .. } => "stats_shared",
+                    crate::env::Untold::ChargeTarget { .. } => "charge_target",
+                    crate::env::Untold::MoveResult { .. } => "move_result",
+                    crate::env::Untold::ItemTaken { .. } => "item_taken",
                 };
                 *tally.untold.entry(kind.into()).or_insert(0) += 1;
             }
@@ -1990,7 +2461,6 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     .then(|| SPECIES[b.mon(crate::MonRef { side: s, idx }).set_species as usize].id)
             };
             for u in unsaid.for_viewer(side) {
-                use crate::env::Untold;
                 // (A rampage the export has over already, as one stopped by a Protect is, hides nothing.)
                 let locked = |sp: &str| {
                     (0..b.sides[u_side(&u)].n).any(|i| {
@@ -2014,7 +2484,34 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     })
                 };
                 let moot = match &u {
-                    Unsaid::RampageEnded { species, .. } => !locked(species),
+                    Unsaid::Rampage { species, .. } => !locked(species),
+                    Unsaid::StatsShared { .. } => false,
+                    Unsaid::ItemTaken { .. } => false,
+                    // (Nor a result the export has as the game does.)
+                    Unsaid::MoveResult { species, this_turn, .. } => {
+                        let result = |battle: &Battle| {
+                            let side = u_side(&u);
+                            (0..battle.sides[side].n).find_map(|i| {
+                                let m = battle.mon(crate::MonRef { side: side as u8, idx: i });
+                                (SPECIES[m.set_species as usize].id == species.as_str())
+                                    .then(|| if *this_turn { m.move_this_turn } else { m.move_last_turn })
+                            })
+                        };
+                        game.battle().is_some_and(|truth| result(truth) == result(b))
+                    }
+                    // (Nor a charge the export aims as the game does.)
+                    Unsaid::ChargeTarget { species, .. } => {
+                        let aim = |battle: &Battle| {
+                            let side = u_side(&u);
+                            (0..battle.sides[side].n).find_map(|i| {
+                                let r = crate::MonRef { side: side as u8, idx: i };
+                                (SPECIES[battle.mon(r).set_species as usize].id == species.as_str()).then(|| {
+                                    crate::follow::CHARGING.iter().find_map(|&v| battle.vols(r).get(v).map(|c| c.st.a))
+                                })
+                            })
+                        };
+                        game.battle().is_some_and(|truth| aim(truth) == aim(b))
+                    }
                     Unsaid::PressurePp { species, mv, .. } => {
                         game.battle().is_some_and(|truth| pp_of(truth, species, mv) == pp_of(b, species, mv))
                     }
@@ -2038,36 +2535,18 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                         game.battle().is_some_and(|truth| off(truth) || loc_of(truth) == loc_of(b))
                     }
                 };
-                let covered = moot
-                    || st.untold.iter().any(|e| match (&u, e) {
-                        (Unsaid::RampageEnded { side: s, species }, Untold::Rampage { side: t, team_index })
-                        | (
-                            Unsaid::EncoreTarget { side: s, species, .. },
-                            Untold::EncoreTarget { side: t, team_index, .. },
-                        ) => *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()),
-                        (
-                            Unsaid::PressurePp { side: s, species, mv },
-                            Untold::PressurePp { side: t, team_index, move_id, .. },
-                        ) => {
-                            *s == *t as usize && species_at(*t, *team_index) == Some(species.as_str()) && mv == move_id
-                        }
-                        _ => false,
-                    });
+                let covered = moot || st.untold.iter().any(|e| case_listed(&u, e, &species_at));
                 if !covered {
                     tally.untold_missing += 1;
-                    note(
-                        tally,
-                        format!(
-                            "not told {} of side {}, but the export does not list it",
-                            u.kind(),
-                            match &u {
-                                Unsaid::RampageEnded { side, .. }
-                                | Unsaid::EncoreTarget { side, .. }
-                                | Unsaid::PressurePp { side, .. } => side,
-                            }
-                        ),
-                    );
+                    note(tally, format!("not told {} of side {}, but the export does not list it", u.kind(), u_side(&u)));
                 }
+            }
+            // No over-listing: every entry is a case its player cannot tell (Kevin, 2026-10-20). An export that
+            // lists what its player could tell passes every other check, and belief then draws where the
+            // player knows.
+            for e in unrecognised(&st.untold, &unsaid.for_viewer(side), b) {
+                tally.untold_unrecognised += 1;
+                note(tally, format!("lists {e:?} as not told, but its player was told it"));
             }
             // Every exact HP the export has worked out is the game's (D77).
             if let Some(truth) = game.battle() {
@@ -2160,14 +2639,27 @@ pub fn check_export(c: &FollowCase, tally: &mut ExportTally) -> Outcome {
                     if t >= truth.sides[s].n as usize {
                         continue;
                     }
-                    let a = [mine.sleep[s][idx], mine.confusion[s][idx], mine.rampage[s][idx], mine.trap[s][idx]];
-                    let z = [theirs.sleep[s][t], theirs.confusion[s][t], theirs.rampage[s][t], theirs.trap[s][t]];
+                    // (And whether a sleep is Rest's, which the log says: counted as a fifth number.)
+                    let a = [
+                        mine.sleep[s][idx],
+                        mine.confusion[s][idx],
+                        mine.rampage[s][idx],
+                        mine.trap[s][idx],
+                        mine.rest[s][idx] as u8,
+                    ];
+                    let z = [
+                        theirs.sleep[s][t],
+                        theirs.confusion[s][t],
+                        theirs.rampage[s][t],
+                        theirs.trap[s][t],
+                        theirs.rest[s][t] as u8,
+                    ];
                     // A rampage this side was not told had ended (D89): its count is not the follower's to know.
                     let species = SPECIES[truth.sides[s].team[t].set_species as usize].id;
                     let unsaid_rampage = unsaid.for_viewer(side).iter().any(
-                        |u| matches!(u, Unsaid::RampageEnded { side: us, species: sp } if *us == s && sp == species),
+                        |u| matches!(u, Unsaid::Rampage { side: us, species: sp } if *us == s && sp == species),
                     );
-                    if a != z && !(unsaid_rampage && [a[0], a[1], a[3]] == [z[0], z[1], z[3]]) {
+                    if a != z && !(unsaid_rampage && [a[0], a[1], a[3], a[4]] == [z[0], z[1], z[3], z[4]]) {
                         differ = true;
                         note(tally, format!("counts of side {s} #{idx}: the follower's {a:?}, the game's {z:?}"));
                     }

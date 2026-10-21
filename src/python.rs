@@ -1110,10 +1110,24 @@ fn follow_case_states<'py>(py: Python<'py>, case: &str) -> PyResult<Vec<Bound<'p
                 let e = PyDict::new(py);
                 e.set_item("kind", u.kind())?;
                 match u {
-                    crate::replay::Unsaid::RampageEnded { side, species }
-                    | crate::replay::Unsaid::EncoreTarget { side, species, .. } => {
+                    crate::replay::Unsaid::Rampage { side, species }
+                    | crate::replay::Unsaid::StatsShared { side, species }
+                    | crate::replay::Unsaid::EncoreTarget { side, species, .. }
+                    | crate::replay::Unsaid::ChargeTarget { side, species } => {
                         e.set_item("side", side)?;
                         e.set_item("species", species)?;
+                    }
+                    crate::replay::Unsaid::MoveResult { side, species, this_turn } => {
+                        e.set_item("side", side)?;
+                        e.set_item("species", species)?;
+                        e.set_item("this_turn", this_turn)?;
+                    }
+                    crate::replay::Unsaid::ItemTaken { side, species, other_side, other_species, item } => {
+                        e.set_item("side", side)?;
+                        e.set_item("species", species)?;
+                        e.set_item("other_side", other_side)?;
+                        e.set_item("other_species", other_species)?;
+                        e.set_item("item", item)?;
                     }
                     crate::replay::Unsaid::PressurePp { side, species, mv } => {
                         e.set_item("side", side)?;

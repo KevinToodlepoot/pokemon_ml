@@ -52,11 +52,12 @@
 //! item extends (Trick Room, Tailwind) are given by the turns they have left.
 //!
 //! Every condition on a Pokémon or a position that has a limit is given a count
-//! ([`OBS_LAYOUT`] `obs-2`): the volatiles of a set length by the turns they have
-//! run ([`TIMED_VOLATILES`]), those of a random length by how far they have run
-//! as both players can count it ([`COUNTED_VOLATILES`], from [`Counts`]), Wish
-//! and Future Sight by the turns to go ([`TIMED_SLOTS`]), and on each Pokémon's
-//! token how long it has slept and how many turns it has stayed frozen.
+//! (since [`OBS_LAYOUT`] `obs-2`, exact since `obs-3`): the volatiles of a set
+//! length by the turns they have run ([`TIMED_VOLATILES`]), those of a random
+//! length by how far they have run as both players can count it
+//! ([`COUNTED_VOLATILES`], from [`Counts`]), Wish and Future Sight by the turns
+//! to go ([`TIMED_SLOTS`]), and on each Pokémon's token how long it has slept
+//! and how many turns it has stayed frozen.
 
 use std::sync::OnceLock;
 
@@ -101,7 +102,11 @@ pub const ACT_COUNTS: usize = ACT_VOLATILES + N_VOLATILES + 2;
 /// * `obs-2`: a count for every condition with a limit (D75, widened 2026-10-17): the
 ///   [`TIMED_VOLATILES`], the [`COUNTED_VOLATILES`] and the [`TIMED_SLOTS`] on a position,
 ///   and how long a Pokémon has slept or stayed frozen on its token.
-pub const OBS_LAYOUT: &str = "obs-2";
+/// * `obs-3`: the same places; the sleep, confusion and binding counts are exact (D97): every
+///   run the log has shown, the turn the effect began included, and a confusion or binding
+///   Baton Pass hands on keeps its count (under `obs-2` they were one short where the effect
+///   began and ran in one step, and started again at 0 when passed).
+pub const OBS_LAYOUT: &str = "obs-3";
 
 /// Volatile conditions that last a set number of turns, each given as the turns it has run,
 /// `(L - left) / L`, with `L` its usual length ([`VolKind::data`]'s `duration`) and `left` the
@@ -887,14 +892,16 @@ pub fn observe_battle(
                 (tok.hp, tok.status, tok.active) = (hp as f32 / 100.0, status, true);
                 tok.tox = if status == Status::Tox { public_toxic_stage(b, r) } else { 0 };
                 tok.transformed = m.transformed;
-                (tok.asleep, tok.frozen) = held_back(status, counts.sleep[opp][r.idx as usize], m.status_time);
+                // (Its sleep as counted under the name it goes by, D96.)
+                (tok.asleep, tok.frozen) = held_back(status, counts.sleep_told(opp, a), m.status_time);
             }
             None => {
                 (tok.hp, tok.status, tok.fainted) = (rec.hp as f32 / 100.0, rec.status, rec.fainted);
-                // (Not for a record whose Pokémon is in fact on the field under another name, in
-                // disguise: what it has slept through since is counted where the viewer sees it.)
-                if !rec.fainted && !them.team[a].is_active {
-                    (tok.asleep, tok.frozen) = held_back(rec.status, counts.sleep[opp][a], them.team[a].status_time);
+                // (Its sleep as counted under its name, D96; not the freeze of a Pokémon that is in fact on
+                // the field under another name, which is counted where the viewer sees it.)
+                if !rec.fainted {
+                    let (slept, frozen) = held_back(rec.status, counts.sleep_told(opp, a), them.team[a].status_time);
+                    (tok.asleep, tok.frozen) = (slept, if them.team[a].is_active { 0 } else { frozen });
                 }
             }
         }

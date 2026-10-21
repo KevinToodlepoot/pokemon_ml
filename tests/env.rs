@@ -803,9 +803,101 @@ fn the_counts_of_hidden_length_effects_advance_as_they_run() {
     }
 }
 
+/// D97: an effect that begins and runs in one step counts that run at the next decision (the
+/// sleep its `cant`, the confusion the attempt it stops, the binding and the rampage the turn's
+/// end), so that every length the rest of the game can have is one its count allows.
+#[test]
+fn an_effect_that_begins_and_runs_in_one_step_counts_that_run() {
+    let set = |species: &str, moves: &[&str]| {
+        ShowdownSet::from_set(&PokemonSet::from_names(species, moves, "Hardy", [0; 6]).unwrap())
+    };
+    let ours = ["Gengar", "Garchomp", "Sylveon", "Arcanine"];
+    let theirs = ["Snorlax", "Hippowdon", "Milotic", "Rotom"];
+    let moves: [&[&str]; 2] = [&["Spore", "Confuse Ray"], &["Outrage", "Infestation"]];
+    let foe_moves: [&[&str]; 2] = [&["Body Slam", "Protect"], &["Slack Off", "Protect"]];
+    let game = || {
+        let mon = |k: usize, species: &str, side: usize| {
+            let m: &[&str] = if k < 2 { if side == 0 { moves[k] } else { foe_moves[k] } } else { &["Protect"] };
+            PokemonState::new(species, m)
+        };
+        let side = |s: usize, names: [&str; 4]| SideState::new((0..4).map(|k| mon(k, names[k], s)).collect());
+        let roster = |s: usize, names: [&str; 4]| -> Vec<ShowdownSet> {
+            (0..6)
+                .map(|k| match k {
+                    0 | 1 => set(names[k], if s == 0 { moves[k] } else { foe_moves[k] }),
+                    2 | 3 => set(names[k], &["Protect"]),
+                    4 => set("Pelipper", &["Protect"]),
+                    _ => set("Kingambit", &["Protect"]),
+                })
+                .collect()
+        };
+        let battle = BattleState { turn: 1, sides: [side(0, ours), side(1, theirs)], ..Default::default() };
+        let st = GameState { rosters: [roster(0, ours), roster(1, theirs)], battle: Some(battle), ..Default::default() };
+        Game::from_state(&st).unwrap()
+    };
+    let foes = [Choice::mv(0, 2), Choice::mv(0, 0)];
+    // Spore on Snorlax, which then tries to move; Outrage's first turn.
+    let mut g = game();
+    g.choose([[Choice::mv(0, 1), Choice::mv(0, 0)], foes]).unwrap();
+    let c = *g.counts();
+    assert_eq!((c.sleep[1][0], c.rampage[0][1]), (1, 1), "{c:?}");
+    // Confuse Ray on Snorlax, which then tries to move; Infestation and the turn's end.
+    let mut g = game();
+    g.choose([[Choice::mv(1, 1), Choice::mv(1, 2)], foes]).unwrap();
+    let c = *g.counts();
+    assert_eq!((c.confusion[1][0], c.trap[1][1]), (1, 1), "{c:?}");
+}
+
+/// D97: a confusion and a binding that Baton Pass hands on go on with what is left of them, and so
+/// do their counts (Showdown's `copyVolatileFrom` clones the state).
+#[test]
+fn a_baton_pass_hands_on_a_confusion_and_a_binding_with_their_counts() {
+    let set = |species: &str, moves: &[&str]| {
+        ShowdownSet::from_set(&PokemonSet::from_names(species, moves, "Hardy", [0; 6]).unwrap())
+    };
+    let ours = ["Azumarill", "Milotic", "Sylveon", "Arcanine"];
+    let theirs = ["Kingambit", "Pelipper", "Snorlax", "Rotom"];
+    let mut passer = PokemonState::new("Azumarill", &["Baton Pass", "Protect"]).volatile(CondState::confusion(4));
+    passer.volatiles.push(CondState { value: 8, ..CondState::new("partiallytrapped").turns(5).source(1, 0) });
+    let rest = |names: [&str; 4]| names[1..].iter().map(|n| PokemonState::new(n, &["Protect"])).collect::<Vec<_>>();
+    let side0 = SideState::new([vec![passer], rest(ours)].concat());
+    let side1 = SideState::new([vec![PokemonState::new("Kingambit", &["Protect"])], rest(theirs)].concat());
+    let roster = |names: [&str; 4], first: &[&str]| -> Vec<ShowdownSet> {
+        let mut r: Vec<ShowdownSet> = names.iter().enumerate().map(|(k, n)| set(n, if k == 0 { first } else { &["Protect"] })).collect();
+        r.push(set("Garchomp", &["Protect"]));
+        r.push(set("Hippowdon", &["Protect"]));
+        r
+    };
+    let mut counts = vgc_engine::env::Counts::default();
+    (counts.confusion[0][0], counts.trap[0][0]) = (1, 1);
+    let battle = BattleState { turn: 3, sides: [side0, side1], ..Default::default() };
+    let st = GameState {
+        rosters: [roster(ours, &["Baton Pass", "Protect"]), roster(theirs, &["Protect"])],
+        battle: Some(battle),
+        counts: Some(counts),
+        ..Default::default()
+    };
+    // Seeds where the confused Azumarill gets its Baton Pass out (one in three would hit itself).
+    let passed = (1..40u16).find_map(|seed| {
+        let mut g = Game::from_state(&st).unwrap();
+        g.reseed([seed, 7, 11, 13]);
+        g.choose([[Choice::mv(0, 0), Choice::mv(0, 0)], [Choice::mv(0, 0), Choice::mv(0, 0)]]).unwrap();
+        // At the Baton Pass's switch request (the turn not over): one more attempt made while confused.
+        (!g.turn_over()).then_some(g)
+    });
+    let mut g = passed.expect("a seed where Baton Pass goes ahead");
+    assert_eq!((g.counts().confusion[0][0], g.counts().trap[0][0]), (2, 1));
+    g.choose([[Choice::Switch { to: 2 }, Choice::Pass], [Choice::Pass, Choice::Pass]]).unwrap();
+    let c = *g.counts();
+    // Sylveon (team index 2) has the confusion as it was (two attempts made) and the binding with the
+    // turn's end run (two); Azumarill, off the field, has neither.
+    assert_eq!((c.confusion[0][2], c.trap[0][2]), (2, 2), "{c:?}");
+    assert_eq!((c.confusion[0][0], c.trap[0][0]), (0, 0), "{c:?}");
+}
+
 #[test]
 fn every_timed_count_has_a_length_and_the_counts_fit_the_token() {
-    assert_eq!(OBS_LAYOUT, "obs-2");
+    assert_eq!(OBS_LAYOUT, "obs-3");
     for kind in TIMED_VOLATILES {
         assert!(kind.data().duration >= 2, "{} lasts more than the turn it begins", kind.id());
         assert!(!HIDDEN_VOLATILES.contains(&kind), "{} is shown", kind.id());

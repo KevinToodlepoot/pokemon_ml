@@ -236,7 +236,7 @@ fn main() {
             "export: {} decisions asked, {} refused {:?}, battles not checked {:?}, {} broken, \
              {} observe differently from their follower, {} with counts unlike the game's, \
              {} showing the other side's HP or bar otherwise; not told (D89, counted) {:?}; \
-             listed by the export as not told (D94) {:?}, cases it leaves out {}; \
+             listed by the export as not told (D94) {:?}, cases it leaves out {}, entries naming no case {}; \
              exact HP worked out {}, wrong {}",
             ex.asked,
             ex.refused.values().sum::<usize>(),
@@ -249,6 +249,7 @@ fn main() {
             ex.unsaid,
             ex.untold,
             ex.untold_missing,
+            ex.untold_unrecognised,
             ex.hp_seen,
             ex.hp_seen_wrong
         );
@@ -263,6 +264,7 @@ fn main() {
             || ex.counts_differ > 0
             || ex.hp_bar_differ > 0
             || ex.untold_missing > 0
+            || ex.untold_unrecognised > 0
             || ex.hp_seen_wrong > 0;
     }
     if let Some(path) = report {
@@ -270,11 +272,11 @@ fn main() {
             serde_json::json!({"asked": ex.asked, "refused": ex.refused, "unsupported": ex.unsupported, "broken": ex.broken,
                 "observed_differently": ex.observed_differently, "counts_differ": ex.counts_differ,
                 "hp_bar_differ": ex.hp_bar_differ, "unsaid": ex.unsaid, "untold": ex.untold,
-                "untold_missing": ex.untold_missing, "hp_seen": ex.hp_seen,
+                "untold_missing": ex.untold_missing, "untold_unrecognised": ex.untold_unrecognised, "hp_seen": ex.hp_seen,
                 "hp_seen_wrong": ex.hp_seen_wrong, "first": ex.first})
         });
         let output = serde_json::json!({
-            "schema_version": 3, "label": label, "files": files, "cases": records,
+            "schema_version": 4, "label": label, "files": files, "cases": records,
             "summary": {"followed": battles, "decisions": decisions, "unsupported": skipped,
                 "failed": failed.len(), "observations": tally.observations,
                 "differences": tally.wrong, "actionable_differences": tally.wrong_choices,

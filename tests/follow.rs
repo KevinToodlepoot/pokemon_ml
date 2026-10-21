@@ -187,7 +187,7 @@ fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
                     let choice = matches!(p["item"].as_str(), Some("choicescarf" | "choiceband" | "choicespecs"));
                     for &field in fields.iter().filter(|&&f| f != "total_fainted") {
                         let not_told = told.iter().any(|u| match u {
-                            Unsaid::RampageEnded { side: us, species: sp } => {
+                            Unsaid::Rampage { side: us, species: sp } | Unsaid::ChargeTarget { side: us, species: sp } => {
                                 *us == s && sp == species && field.starts_with("volatiles")
                             }
                             Unsaid::PressurePp { side: us, species: sp, .. } => {
@@ -195,6 +195,16 @@ fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
                             }
                             Unsaid::EncoreTarget { side: us, species: sp, .. } => {
                                 *us == s && sp == species && field == "last_move_target"
+                            }
+                            Unsaid::StatsShared { side: us, species: sp } => *us == s && sp == species && field == "stats",
+                            Unsaid::MoveResult { side: us, species: sp, this_turn } => {
+                                *us == s
+                                    && sp == species
+                                    && field == if *this_turn { "move_this_turn" } else { "move_last_turn" }
+                            }
+                            Unsaid::ItemTaken { side: us, species: sp, other_side, other_species, .. } => {
+                                field == "last_item"
+                                    && ((*us == s && sp == species) || (*other_side == s && other_species == species))
                             }
                         });
                         if not_told || (switching && field == "move_last_turn") {
@@ -232,6 +242,298 @@ fn export_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
         Outcome::Unsupported(why) => out.push(format!("battle {}: unsupported: {why}", case.id)),
     }
     out
+}
+
+/// Every field named that a search from an export reads, export against game, at every decision of a recorded
+/// battle, from both sides (S3b.6c, what rootcheck found): for each Pokémon on the field (found by the species it
+/// was brought as), and each side's `conditions` and `slot_conditions` where named. A Pokémon is named by its
+/// species wherever a field points at one (an attacker, a condition's maker), as the export numbers the other side
+/// by appearance and the game by pick order. As rootcheck has them: a condition's numbers only where they are
+/// public (`pick` in `export_differs`), its maker only for the kinds a handler reads it of (rootcheck's
+/// `SOURCE_READ`, and a substitute's, which belief sizes it from); the other side's stats (its hidden spread's) and
+/// its aim (`last_move_target`, a choice it is not shown) left out. What lasts the battle (`last_item`, `ate_berry`,
+/// `syrup_triggered`, `moves.pp`) is compared on the bench too. Left out too: the field each entry of the export's
+/// list of what its player cannot tell is about (`untold`, D89, D94; read as JSON), and what the turn's end clears
+/// before anything reads it at a replacement request (last turn's move result, a Choice lock whose item has gone).
+fn root_state_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
+    use vgc_engine::env::Game;
+    use vgc_engine::replay::hidden_disable;
+    const SOURCE_READ: [&str; 11] = [
+        "attract",
+        "octolock",
+        "syrupbomb",
+        "yawn",
+        "partiallytrapped",
+        "imprison",
+        "lockon",
+        "leechseed",
+        "trapped",
+        "trapper",
+        "substitute",
+    ];
+    let value = |game: &Game| -> serde_json::Value { serde_json::from_str(&game.to_state().to_json()).unwrap() };
+    // A Pokémon a field points at, by its species in the same state (`side`, `pokemon`: its place in its side's list).
+    fn named(state: &serde_json::Value, side: usize, v: &serde_json::Value) -> serde_json::Value {
+        let k = v.as_u64().unwrap_or(u64::MAX) as usize;
+        state["battle"]["sides"][side]["pokemon"].get(k).map_or(v.clone(), |p| p["original_species"].clone())
+    }
+    fn pointers(state: &serde_json::Value, v: &mut serde_json::Value, foe: usize) {
+        match v {
+            serde_json::Value::Object(o) => {
+                if let (Some(s), Some(k)) = (o.get("side").and_then(|s| s.as_u64()), o.get("pokemon").cloned()) {
+                    o.insert("pokemon".into(), named(state, s as usize, &k));
+                }
+                for (_, x) in o.iter_mut() {
+                    pointers(state, x, foe);
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|x| pointers(state, x, foe)),
+            _ => {}
+        }
+    }
+    let pick = |state: &serde_json::Value, p: &serde_json::Value, field: &str, s: usize| -> serde_json::Value {
+        let public = |e: &serde_json::Value, key: &str| {
+            (!matches!(key, "value" | "a" | "b")
+                || matches!(e["id"].as_str(), Some("stall" | "allyswitch" | "stockpile" | "metronome" | "dragoncheer"))
+                || (key == "value" && e["id"] == "partiallytrapped"))
+                && (!matches!(key, "source" | "source_slot") || SOURCE_READ.contains(&e["id"].as_str().unwrap_or("")))
+        };
+        let mut v = match field.split_once('.') {
+            Some(("damaged_by", key)) => serde_json::Value::Array(
+                p["damaged_by"].as_array().into_iter().flatten().map(|e| named(state, 1 - s, &e[key])).collect(),
+            ),
+            Some((list, key)) if p[list].is_array() => serde_json::Value::Array(
+                p[list].as_array().into_iter().flatten().filter(|e| public(e, key)).map(|e| e[key].clone()).collect(),
+            ),
+            Some((object, key)) => p[object][key].clone(),
+            None => p[field].clone(),
+        };
+        pointers(state, &mut v, 1 - s);
+        v
+    };
+    let mut out = Vec::new();
+    let outcome = walk_follow(case, &mut |game, followers, step| {
+        let truth = value(game);
+        let switching = truth["battle"]["request"] == "switch";
+        for (viewer, follower) in followers.iter().enumerate() {
+            if hidden_disable(game, viewer) || follower.phase().is_none() {
+                continue;
+            }
+            let Ok(st) = follower.game_state() else { continue };
+            let export = value(&Game::from_state(&st).map_err(|e| e.to_string())?);
+            // (What its player cannot tell, by side and the species at each team index named.)
+            let untold = serde_json::to_value(&st.untold).unwrap();
+            let species_at = |side: u64, ti: &serde_json::Value| {
+                export["battle"]["sides"][side as usize]["pokemon"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|q| q["team_index"] == *ti || (q.get("team_index").is_none() && *ti == 0))
+                    .map(|q| q["original_species"].clone())
+            };
+            // (Side, species, the fields its entry is about, and the move for PP.)
+            let mut doubted: Vec<(usize, serde_json::Value, &[&str], serde_json::Value)> = Vec::new();
+            for u in untold.as_array().into_iter().flatten() {
+                let about: &[&str] = match u["kind"].as_str().unwrap_or("") {
+                    "rampage" => &["volatiles.id", "volatiles.move_id", "volatiles.a", "volatiles.value", "locked_move", "trapped"],
+                    "pressure_pp" => &["moves.pp"],
+                    "encore_target" | "charge_target" => &["last_move_target", "volatiles.a"],
+                    "move_result" => &["move_this_turn", "move_last_turn"],
+                    "item_taken" => &["last_item"],
+                    _ => &["stats"],
+                };
+                for (s, ti) in [("side", "team_index"), ("other_side", "other_index")] {
+                    if let (Some(side), Some(sp)) = (u[s].as_u64(), species_at(u[s].as_u64().unwrap_or(0), &u[ti])) {
+                        doubted.push((side as usize, sp, about, u["move_id"].clone()));
+                    }
+                }
+            }
+            let mut wrong = |what: String, a: &serde_json::Value, b: &serde_json::Value| {
+                out.push(format!("battle {} step {step}, seen by p{}: {what}: the game's {a}, the export's {b}", case.id, viewer + 1));
+            };
+            for s in 0..2 {
+                // (Each side's conditions, where named.)
+                if fields.iter().any(|f| f.ends_with("conditions")) {
+                    // Its slot conditions, with their makers and numbers (the other side's Wish heals half its maker's
+                    // max HP, which is its hidden spread's).
+                    // (The effect order's numbering is a count of all effects, compared by rootcheck after renumbering.)
+                    let slots = |state: &serde_json::Value| {
+                        let mut v = state["battle"]["sides"][s]["slot_conditions"].clone();
+                        pointers(state, &mut v, 1 - s);
+                        for c in v.as_array_mut().into_iter().flatten().flat_map(|slot| slot.as_array_mut().into_iter().flatten()) {
+                            if let Some(o) = c.as_object_mut() {
+                                o.remove("order");
+                                if s != viewer {
+                                    o.remove("value");
+                                }
+                            }
+                        }
+                        v
+                    };
+                    let (a, b) = (slots(&truth), slots(&export));
+                    if a != b {
+                        wrong(format!("p{} slot_conditions", s + 1), &a, &b);
+                    }
+                    // Its side conditions and how long each has left (whoever put one up is read only as it goes up).
+                    let conds = |state: &serde_json::Value| {
+                        let mut v = state["battle"]["sides"][s]["conditions"].clone();
+                        for c in v.as_array_mut().into_iter().flatten() {
+                            if let Some(o) = c.as_object_mut() {
+                                o.remove("source");
+                                o.remove("source_slot");
+                                o.remove("order");
+                            }
+                        }
+                        v
+                    };
+                    let (a, b) = (conds(&truth), conds(&export));
+                    if a != b {
+                        wrong(format!("p{} conditions", s + 1), &a, &b);
+                    }
+                }
+                let theirs = export["battle"]["sides"][s]["pokemon"].as_array().cloned().unwrap_or_default();
+                for p in truth["battle"]["sides"][s]["pokemon"].as_array().into_iter().flatten() {
+                    let lasting = |f: &str| matches!(f, "last_item" | "ate_berry" | "syrup_triggered" | "moves.pp");
+                    let doubts: Vec<&(usize, serde_json::Value, &[&str], serde_json::Value)> =
+                        doubted.iter().filter(|d| d.0 == s && d.1 == p["original_species"]).collect();
+                    let Some(q) = theirs.iter().find(|q| q["original_species"] == p["original_species"]) else { continue };
+                    let species = p["original_species"].as_str().unwrap_or("");
+                    let choice = matches!(p["item"].as_str(), Some("choicescarf" | "choiceband" | "choicespecs"));
+                    // (Where a move was aimed matters only for one whose target a player picks, used this stay:
+                    // rootcheck's rule, as Encore's and Instruct's repeat read it.)
+                    let chosen = p["last_move"].as_str().and_then(vgc_engine::data::move_id).is_some_and(|m| {
+                        use vgc_engine::data::Target;
+                        matches!(
+                            vgc_engine::data::MOVES[m as usize].target,
+                            Target::Normal | Target::Any | Target::AdjacentFoe | Target::AdjacentAlly | Target::AdjacentAllyOrSelf
+                        )
+                    });
+                    for &field in fields.iter().filter(|f| !f.ends_with("conditions")) {
+                        let theirs = s != viewer && matches!(field, "stats" | "last_move_target");
+                        let benched = p["is_active"] != true && !lasting(field);
+                        let unsaid = doubts.iter().any(|d| d.2.contains(&field) && (field != "moves.pp" || d.3.is_null()));
+                        if (switching && field == "move_last_turn") || theirs || benched || unsaid || (field == "last_move_target" && !chosen) {
+                            continue;
+                        }
+                        let (mut a, mut b) = (pick(&truth, p, field, s), pick(&export, q, field, s));
+                        // (Who has attacked it is a set: the two sides number the other's Pokémon each their own way.)
+                        if field == "types_said.attacked_by" {
+                            for v in [&mut a, &mut b] {
+                                if let serde_json::Value::Array(l) = v {
+                                    l.sort_by_key(|x| x.to_string());
+                                }
+                            }
+                        }
+                        // (PP paid to Pressure behind a blanked target: that move's PP is not told.)
+                        if field == "moves.pp" {
+                            for d in doubts.iter().filter(|d| d.2.contains(&"moves.pp")) {
+                                for (state, list) in [(p, &mut a), (q, &mut b)] {
+                                    let ids: Vec<serde_json::Value> =
+                                        state["moves"].as_array().into_iter().flatten().map(|m| m["id"].clone()).collect();
+                                    if let serde_json::Value::Array(l) = list {
+                                        for (k, v) in l.iter_mut().enumerate() {
+                                            if ids.get(k) == Some(&d.3) {
+                                                *v = serde_json::Value::Null;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if switching && !choice && field.starts_with("volatiles") {
+                            let kept: Vec<bool> =
+                                p["volatiles"].as_array().into_iter().flatten().map(|v| v["id"] != "choicelock").collect();
+                            if let serde_json::Value::Array(list) = &mut a {
+                                let mut k = kept.iter();
+                                list.retain(|_| *k.next().unwrap_or(&true));
+                            }
+                        }
+                        let unset = |v: &serde_json::Value| v.is_null() || *v == 0 || *v == 1;
+                        let berserk = field == "ability_extra.a" && p["ability"] == "berserk" && unset(&a) && unset(&b);
+                        if a != b && !berserk {
+                            wrong(format!("p{} {species} {field}", s + 1), &a, &b);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    });
+    match outcome {
+        Outcome::Pass(_) => {}
+        Outcome::Fail(why) => out.push(format!("battle {}: not followed: {}", case.id, why.join("; "))),
+        Outcome::Unsupported(why) => out.push(format!("battle {}: unsupported: {why}", case.id)),
+    }
+    out
+}
+
+/// What the belief roots found the follower and its export getting wrong on random and themed play (S3b.6c), each
+/// in the battle that showed it (Dex sets, random or `gen_cases`; cut from gate 1's recordings at `fefdfcf` to just
+/// past it, with Showdown's state at every point; ids from 1, the source in the battle's name): at every decision
+/// the follower observes as the game does (the disguise sleep counts, D96, by the name each Pokémon goes by), its
+/// export loads, observes as it does, counts as the game does, lists every case of what its player is not told and
+/// nothing else, and has the game's value of every field of its family a search reads (`root_state_differs`). At
+/// `fefdfcf` each battle failed one of these (or did not list its D89 case, 39-41), but six that guard S3b.6c's own
+/// changes, found by followcheck or rootcheck on its way: 48, the told sleep count of two on the field that look the
+/// same (D96); 58, 80 and 90, a Pokémon's own `cant` after a move Magic Bounce sent back or an Instruct repeated, which
+/// is an action of its own; 76, Trace judged on who stood beside it as it came in; and 94, Flower Veil keeping Parting
+/// Shot's stages off at a target it still reached. 49-73 are the
+/// families the second full measurement found (Dragon Darts that strike nothing, a move Magic Bounce sends back,
+/// Synchronize's and Heal Block's lines, a Substitute's share of a status move, Curse's aim, and more); 74-89
+/// the third's (a revived Pokémon passed in, Ripen, Trace at entry, Counter's and Metal Burst's PP, a disguise's item);
+/// 90-97 the fourth's (an Instruct while asleep, a Substitute's share, Trace at a Mega Evolution, Flower Veil, a redirect).
+#[test]
+fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    // The fields each battle shows (by its id in the fixture; the disguise battles, 42-48, are the observation's).
+    const VOLS: &[&str] = &["volatiles.id", "volatiles.move_id", "volatiles.a", "volatiles.value"];
+    const RESULT: &[&str] = &["move_last_turn", "move_this_turn", "types_said.attacked_by", "times_attacked"];
+    let fields = |id: u32| -> &'static [&'static str] {
+        match id {
+            1 | 8 | 9 | 10 => &["volatiles.id", "volatiles.source", "volatiles.source_slot"],
+            2..=4 | 11..=14 | 37 | 52 | 53 | 55 | 57 | 84 => VOLS,
+            5 => &["syrup_triggered"],
+            6 | 7 | 38 => &["conditions", "slot_conditions"],
+            15..=19 | 40 | 49..=51 | 59 | 61 | 64..=69 | 73 | 77..=79 | 83 | 85 | 86 | 89 | 91 | 93 | 94 | 96 | 97 => RESULT,
+            20 | 21 | 56 | 62 | 74 => &["damaged_by.pokemon", "times_attacked", "types_said.attacked_by"],
+            22 => &["ate_berry"],
+            23 | 41 => &["last_item"],
+            24..=28 | 60 | 75 | 76 | 92 => &["ability_extra.a", "ability_extra.b", "ability_extra.item"],
+            29 => &["shown_now.copied_gastro"],
+            30 => &["skip_before_switch_out", "switch_flag"],
+            31 | 32 | 58 | 80 | 87 | 90 | 95 => &["move_actions"],
+            33 | 54 | 81 | 82 | 88 => &["moves.pp"],
+            34 | 39 | 70..=72 => &["last_move_target", "volatiles.a"],
+            63 => &["types_said.apparent", "types_said.copied", "types_said.copied_foe", "types_said.told"],
+            35 | 36 => &["stats"],
+            _ => &[],
+        }
+    };
+    let (mut tally, mut exports) = (FollowTally::default(), ExportTally::default());
+    let text = include_str!("fixtures/root_regressions.jsonl");
+    let mut wrong = Vec::new();
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state(), "battle {}", case.id);
+        for outcome in [check_follow(&case, &mut tally), check_export(&case, &mut exports)] {
+            match outcome {
+                Outcome::Pass(_) => {}
+                Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+                Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+        wrong.extend(root_state_differs(&case, fields(case.id)));
+    }
+    assert!(text.lines().count() >= 97, "{} battles", text.lines().count());
+    assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+    assert_eq!((exports.untold_missing, exports.untold_unrecognised), (0, 0), "{:#?}", exports.first);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    // (What its player cannot tell, D89's D1-D3 among it: listed where the battles reach it.)
+    for kind in ["charge_target", "move_result", "item_taken", "stats_shared"] {
+        assert!(exports.untold.get(kind).is_some_and(|&n| n > 0), "{kind}: {:?}", exports.untold);
+    }
 }
 
 /// What the state gate's first run on skilled play (S3b.6, D74) found the follower's export getting
@@ -277,9 +579,10 @@ fn what_the_state_gates_first_run_found_the_export_getting_wrong_is_right() {
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", tally.first);
     assert!(wrong.is_empty(), "{wrong:#?}");
     // The silent rampage ends in the fixture are recognised as such (D89), not missed.
-    assert!(tally.unsaid.get("rampage_ended").is_some_and(|&n| n >= 3), "{:?}", tally.unsaid);
-    // And each export lists what its player cannot tell, every case of it (D94).
+    assert!(tally.unsaid.get("rampage").is_some_and(|&n| n >= 3), "{:?}", tally.unsaid);
+    // And each export lists what its player cannot tell, every case of it (D94), and nothing else.
     assert_eq!(tally.untold_missing, 0, "{:#?}", tally.first);
+    assert_eq!(tally.untold_unrecognised, 0, "{:#?}", tally.first);
     for kind in ["rampage", "pressure_pp", "encore_target"] {
         assert!(tally.untold.get(kind).is_some_and(|&n| n > 0), "{kind}: {:?}", tally.untold);
     }
@@ -318,11 +621,12 @@ fn where_an_encored_move_went_is_listed_only_where_it_is_not_told() {
                 if hidden_disable(game, side) || follower.phase().is_none() {
                     continue;
                 }
+                // (Either case: the line blanked, or the one drawn fallen first.)
                 let blanked: Vec<String> = unsaid
                     .for_viewer(side)
                     .into_iter()
                     .filter_map(|u| match u {
-                        Unsaid::EncoreTarget { species, blanked: true, .. } => Some(species),
+                        Unsaid::EncoreTarget { species, .. } => Some(species),
                         _ => None,
                     })
                     .collect();
@@ -382,8 +686,8 @@ fn where_an_encored_move_went_is_listed_only_where_it_is_not_told() {
     for id in [45, 46] {
         assert!(seen[&id].0 == 0 && seen[&id].1 == 0 && seen[&id].2 > 0, "battle {id}: {seen:?}");
     }
-    // (After the one drawn fell, a later line names the second draw: listed, as the fainted case is.)
-    assert!(seen[&48].0 == 0 && seen[&48].1 > 0, "battle 48: {seen:?}");
+    // (After the one drawn fell, a later line names the second draw: the fainted case, recognised and listed.)
+    assert!(seen[&48].0 > 0 && seen[&48].1 > 0, "battle 48: {seen:?}");
 }
 
 /// What no player is told is recognised from the game's history (D89), each kind in a battle that
@@ -413,20 +717,71 @@ fn what_no_player_is_told_is_recognised_exactly() {
         for (viewer, u) in seen {
             *kinds.entry(u.kind()).or_insert(0) += 1;
             match &u {
-                // The other side is the one not told of a rampage's end or of PP paid to Pressure; a
-                // player is not told where its own Encored move went.
-                Unsaid::RampageEnded { side, .. } | Unsaid::PressurePp { side, .. } => assert_eq!(viewer, 1 - side),
-                Unsaid::EncoreTarget { side, .. } => assert_eq!(viewer, *side),
+                // The other side is the one not told of PP paid to Pressure or of a blanked move's result; a player
+                // is not told where its own Encored or called charging move went. Neither is told of a rampage
+                // that may be over (its own side until a move request), nor of Pickup's source, nor of a split
+                // between one of each side; of a split between two of one side, the other side.
+                Unsaid::PressurePp { side, .. } | Unsaid::MoveResult { side, .. } => assert_eq!(viewer, 1 - side),
+                Unsaid::EncoreTarget { side, .. } | Unsaid::ChargeTarget { side, .. } => assert_eq!(viewer, *side),
+                Unsaid::Rampage { .. } | Unsaid::ItemTaken { .. } | Unsaid::StatsShared { .. } => {}
             }
         }
     }
-    // Three silent ends (the rampage battle and the two V5 ones), the Pressure case and the Encore
-    // case; the renewed rampages (a self-hit, which the log shows) are not among them.
-    assert_eq!(kinds.get("rampage_ended"), Some(&3), "{kinds:?}");
+    // Four rampages whose second turn could have been their last without a word (battles 1 and 4, which each
+    // end there, and the two V5 ones, 26 and 27; the walk now recognises the case whichever reading the game
+    // took, S3b.6c), the Pressure case and the Encore case; the renewed rampages (a self-hit, which the log
+    // shows) are not among them.
+    assert_eq!(kinds.get("rampage"), Some(&4), "{kinds:?}");
     assert!(kinds.get("pressure_pp").is_some_and(|&n| n >= 1), "{kinds:?}");
     assert!(kinds.get("encore_target").is_some_and(|&n| n >= 1), "{kinds:?}");
-    // Three blanked lines after an Encore (S3b.6b2): a Trick and a Fake Out that fail, and a Dig's charge.
-    assert_eq!(kinds.get("encore_blanked"), Some(&3), "{kinds:?}");
+    // Two blanked lines after an Encore (S3b.6b2): a Fake Out that fails, and a Dig's charge. (The Trick that
+    // fails after one of the other side fainted is the fainted case, S3b.6c.)
+    assert_eq!(kinds.get("encore_blanked"), Some(&2), "{kinds:?}");
+}
+
+/// No over-listing (S3b.6c, Kevin 2026-10-20): every entry of an export's list of what its player cannot tell is
+/// a case the game's history knows of, at every decision of the D89 fixture; an entry added by hand, or one that
+/// names another move than the one that paid, names no case and is caught.
+#[test]
+fn an_entry_naming_no_case_its_player_cannot_tell_is_caught() {
+    use vgc_engine::env::{Game, Untold};
+    use vgc_engine::replay::{UnsaidTracker, hidden_disable, unrecognised};
+    let (mut entries, mut added, mut renamed) = (0, 0, 0);
+    for line in include_str!("fixtures/export_regressions.jsonl").lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        let mut unsaid = UnsaidTracker::default();
+        walk_follow(&case, &mut |game, followers, step| {
+            match step {
+                0 => unsaid.start(game),
+                k => unsaid.step(game, &case.steps[k - 1].after.log, &case.steps[k - 1].choices),
+            }
+            for (side, follower) in followers.iter().enumerate() {
+                if hidden_disable(game, side) || follower.phase().is_none() {
+                    continue;
+                }
+                let Ok(mut st) = follower.game_state() else { continue };
+                let export = Game::from_state(&st).map_err(|e| e.to_string())?;
+                let b = export.battle().unwrap();
+                let cases = unsaid.for_viewer(side);
+                assert!(unrecognised(&st.untold, &cases, b).is_empty(), "battle {} step {step}: {:?}", case.id, st.untold);
+                entries += st.untold.len();
+                // A Pokémon of the other side listed as having split stats, which none in the fixture did.
+                let extra = Untold::StatsShared { side: (1 - side) as u8, team_index: 0 };
+                st.untold.push(extra.clone());
+                assert_eq!(unrecognised(&st.untold, &cases, b), [&extra], "battle {} step {step}", case.id);
+                st.untold.pop();
+                added += 1;
+                // PP paid to Pressure by another move than the one that paid.
+                if let Some(Untold::PressurePp { move_id, .. }) = st.untold.iter_mut().find(|e| matches!(e, Untold::PressurePp { .. })) {
+                    *move_id = "struggle".into();
+                    assert_eq!(unrecognised(&st.untold, &cases, b).len(), 1, "battle {} step {step}", case.id);
+                    renamed += 1;
+                }
+            }
+            Ok(())
+        });
+    }
+    assert!(entries > 0 && added > 300 && renamed > 0, "{entries} entries, {added} added, {renamed} renamed");
 }
 
 #[test]
@@ -845,7 +1200,7 @@ fn what_the_new_pin_and_random_play_found_the_follower_getting_wrong_is_right() 
             }
             for viewer in 0..2 {
                 for u in unsaid.for_viewer(viewer) {
-                    if let Unsaid::RampageEnded { side, species } = u
+                    if let Unsaid::Rampage { side, species } = u
                         && !silent.contains(&(case.id, viewer, side, species.clone()))
                     {
                         silent.push((case.id, viewer, side, species));

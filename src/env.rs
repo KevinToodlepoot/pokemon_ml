@@ -97,14 +97,16 @@ pub enum Baseline {
 }
 
 /// How far the effects with a hidden random length have run, as both players
-/// can count them from the log: by side and team index, the turns a Pokémon
-/// has been asleep (its `cant` lines; Early Bird counts two a turn), the move
-/// attempts it has made while confused, the turns of a rampage it has used
-/// and the turns of residual damage a binding move has dealt it. Part of a
-/// game's state, next to its [`Battle`], for whoever has to draw the hidden
-/// length afresh (a search from a position one side knows). An effect that
-/// began and ran in the same step counts from the decision after, which is
-/// one short.
+/// can count them from the log (D97): by side and team index, the runs of the
+/// effect its current instance has made, the turn it began included. A run is
+/// a `cant` line of a Pokémon asleep (two with Early Bird at work), a move
+/// attempt while confused (`-activate`), and a turn's end with a rampage's
+/// lock or a binding move on it. Each count is the length the effect rolled
+/// less what is left of it, so every length the rest of the game can have is
+/// one the count allows; a confusion or a binding Baton Pass hands on keeps
+/// its count, as Showdown copies what is left of it. Part of a game's state,
+/// next to its [`Battle`], for whoever has to draw the hidden length afresh (a
+/// search from a position one side knows).
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Counts {
@@ -112,61 +114,234 @@ pub struct Counts {
     pub confusion: [[u8; MAX_TEAM]; 2],
     pub rampage: [[u8; MAX_TEAM]; 2],
     pub trap: [[u8; MAX_TEAM]; 2],
+    /// Its sleep is Rest's, which the log says (`-status|X|slp|[from] move: Rest`): three turns, no
+    /// draw (Showdown's Rest sets `time = startTime = 3`), whatever it has done since.
+    pub rest: [[bool; MAX_TEAM]; 2],
+    /// The sleep counts the other side is shown, by side and the team index of the Pokémon each name
+    /// is (D96), where a disguise (Illusion) makes them other than `sleep`: plus one, and 0 where it is
+    /// the Pokémon's own ([`Counts::sleep_told`]). A Pokémon in disguise sleeps under the name it passes
+    /// for; once the disguise is told (`replace`), the runs it made under that name this stay are its
+    /// own, and the name's count goes back to what it was before them.
+    #[serde(skip_serializing_if = "is_default")]
+    pub told_sleep: [[u8; MAX_TEAM]; 2],
+    /// By side and team index: what a Pokémon in disguise has slept under the name it passes for this
+    /// stay (D96).
+    #[serde(skip_serializing_if = "is_default")]
+    pub borrowed: [[Borrowed; MAX_TEAM]; 2],
+}
+
+/// What a Pokémon in disguise has slept under the name it passes for, this stay ([`Counts::borrowed`]):
+/// the name (by team index), the runs, the name's count before them, and whether the sleep began this
+/// stay.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Borrowed {
+    pub record: Option<u8>,
+    pub runs: u8,
+    pub before: u8,
+    pub began: bool,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+/// The effects [`Counts`] counts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Counted {
+    Sleep,
+    Confusion,
+    Rampage,
+    Trap,
+}
+
+impl Counted {
+    const ALL: [Counted; 4] = [Counted::Sleep, Counted::Confusion, Counted::Rampage, Counted::Trap];
+
+    /// The volatile condition it is (sleep is a status).
+    pub(crate) fn volatile(self) -> Option<VolKind> {
+        match self {
+            Counted::Sleep => None,
+            Counted::Confusion => Some(VolKind::Confusion),
+            Counted::Rampage => Some(VolKind::Lockedmove),
+            Counted::Trap => Some(VolKind::Partiallytrapped),
+        }
+    }
+
+    /// The instance `r` holds and what is left of it: the sleep's turns, the confusion's attempts,
+    /// the rampage's true turns and the binding's turns. Volatiles only on the field.
+    fn instance(self, b: &Battle, r: MonRef) -> Option<(u16, i16)> {
+        let m = b.mon(r);
+        match self.volatile() {
+            None => (m.status == Status::Slp).then_some((m.status_st.uid, m.status_time as i16)),
+            Some(kind) => {
+                if !m.is_active || m.fainted {
+                    return None;
+                }
+                b.vols(r).get(kind).map(|c| {
+                    let left = match self {
+                        Counted::Confusion => c.data as i16,
+                        Counted::Rampage => c.st.a,
+                        _ => c.duration as i16,
+                    };
+                    (c.st.uid, left)
+                })
+            }
+        }
+    }
+
+    fn table(self, counts: &mut Counts) -> &mut [[u8; MAX_TEAM]; 2] {
+        match self {
+            Counted::Sleep => &mut counts.sleep,
+            Counted::Confusion => &mut counts.confusion,
+            Counted::Rampage => &mut counts.rampage,
+            Counted::Trap => &mut counts.trap,
+        }
+    }
+
+    fn count(self, counts: &Counts, r: MonRef) -> u8 {
+        let table = match self {
+            Counted::Sleep => &counts.sleep,
+            Counted::Confusion => &counts.confusion,
+            Counted::Rampage => &counts.rampage,
+            Counted::Trap => &counts.trap,
+        };
+        table[r.side as usize][r.idx as usize]
+    }
 }
 
 impl Counts {
-    /// Advances the counts from the battle as it was at the last decision to the battle now.
-    fn update(&mut self, before: &Battle, after: &Battle) {
+    /// The sleep count the other side is shown for `side`'s Pokémon of team index `a`, by its name (D96).
+    pub(crate) fn sleep_told(&self, side: usize, a: usize) -> u8 {
+        match self.told_sleep[side][a] {
+            0 => self.sleep[side][a],
+            n => n - 1,
+        }
+    }
+
+    /// Advances the counts from the battle as it was at the last decision to the battle now, with what
+    /// the step between reported ([`speed::Event::Began`], [`speed::Event::Passed`]): every instance
+    /// alive now has a length it began with, from the last decision (its count and what was left), from
+    /// the roll that began it in the step, or from the Pokémon that passed it on, and its count is that
+    /// length less what is left.
+    fn update(&mut self, before: &Battle, after: &Battle, events: &[speed::Event]) {
+        // (uid, the length it began with, whether it is Rest's sleep)
+        let mut began: Vec<(u16, i16, bool)> = Vec::new();
+        // The length an instance alive at the last decision began with: its count and what was left.
+        let start_before = |counts: &Counts, kind: Counted, r: MonRef, uid: u16| -> Option<i16> {
+            let (was, left) = kind.instance(before, r)?;
+            (was == uid).then(|| kind.count(counts, r) as i16 + left)
+        };
+        for event in events {
+            match *event {
+                speed::Event::Began { uid, length, rest } => {
+                    began.retain(|e| e.0 != uid);
+                    began.push((uid, length as i16, rest));
+                }
+                speed::Event::Passed { from, kind, from_uid, to_uid, .. } => {
+                    let start = began
+                        .iter()
+                        .find(|e| e.0 == from_uid)
+                        .map(|e| e.1)
+                        .or_else(|| start_before(self, kind, from, from_uid));
+                    if let Some(start) = start {
+                        began.retain(|e| e.0 != to_uid);
+                        began.push((to_uid, start, false));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut next = *self;
+        // By side and team index: a sleep began in the step.
+        let mut fresh = [[false; MAX_TEAM]; 2];
         for side in 0..2 {
             for idx in 0..MAX_TEAM {
                 let r = MonRef { side: side as u8, idx: idx as u8 };
-                let (was, now) = (before.mon(r), after.mon(r));
-                // Sleep: the same bout goes on if the status instance is the same.
-                let same_sleep =
-                    was.status == Status::Slp && now.status == Status::Slp && was.status_st.uid == now.status_st.uid;
-                self.sleep[side][idx] = if now.status != Status::Slp {
-                    0
-                } else if same_sleep {
-                    self.sleep[side][idx].saturating_add(was.status_time.saturating_sub(now.status_time))
-                } else {
-                    0
-                };
-                // Volatiles live with the Pokémon's position on the field.
-                let vol = |b: &Battle, m: &Pokemon, kind: VolKind| -> Option<(u16, u16, i16, u8)> {
-                    if !m.is_active || m.fainted {
-                        return None;
-                    }
-                    b.vols(r).get(kind).map(|c| (c.st.uid, c.data, c.st.a, c.duration))
-                };
-                // (uid, data, st.a, duration) of the condition at the last decision and now.
-                type Seen = Option<(u16, u16, i16, u8)>;
-                type Used = fn(&(u16, u16, i16, u8), &(u16, u16, i16, u8)) -> u8;
-                let step = |count: &mut u8, was: Seen, now: Seen, used: Used| {
-                    *count = match (was, now) {
-                        (Some(w), Some(n)) if w.0 == n.0 => count.saturating_add(used(&w, &n)),
-                        _ => 0,
+                for kind in Counted::ALL {
+                    let now = kind.instance(after, r);
+                    let new = now.and_then(|(uid, _)| began.iter().find(|e| e.0 == uid));
+                    let n = match now {
+                        None => 0,
+                        Some((uid, left)) => {
+                            let start = start_before(self, kind, r, uid).or_else(|| new.map(|e| e.1));
+                            start.map_or(0, |start| (start - left).clamp(0, 255) as u8)
+                        }
                     };
-                };
-                step(
-                    &mut self.confusion[side][idx],
-                    vol(before, was, VolKind::Confusion),
-                    vol(after, now, VolKind::Confusion),
-                    |w, n| w.1.saturating_sub(n.1).min(255) as u8,
-                );
-                step(
-                    &mut self.rampage[side][idx],
-                    vol(before, was, VolKind::Lockedmove),
-                    vol(after, now, VolKind::Lockedmove),
-                    |w, n| (w.2 - n.2).clamp(0, 255) as u8,
-                );
-                step(
-                    &mut self.trap[side][idx],
-                    vol(before, was, VolKind::Partiallytrapped),
-                    vol(after, now, VolKind::Partiallytrapped),
-                    |w, n| w.3.saturating_sub(n.3),
-                );
+                    kind.table(&mut next)[side][idx] = n;
+                    if kind == Counted::Sleep {
+                        // (Rest's mark goes with the sleep it began, and with nothing else.)
+                        let same = now.is_some_and(|(uid, _)| start_before(self, kind, r, uid).is_some());
+                        fresh[side][idx] = now.is_some() && !same;
+                        next.rest[side][idx] = match (now, new) {
+                            (None, _) => false,
+                            (Some(_), Some(e)) if !same => e.2,
+                            _ => same && self.rest[side][idx],
+                        };
+                    }
+                }
             }
         }
+        // The sleep counts by name (D96): each Pokémon's runs in the step go to the name it goes by now, or
+        // went by at the last decision if it has left the field since.
+        let mut told = [[0u8; MAX_TEAM]; 2];
+        for (side, row) in told.iter_mut().enumerate() {
+            for (a, n) in row.iter_mut().enumerate() {
+                *n = self.sleep_told(side, a);
+            }
+        }
+        for side in 0..2 {
+            for idx in 0..(after.sides[side].n as usize).min(MAX_TEAM) {
+                let r = MonRef { side: side as u8, idx: idx as u8 };
+                let on = |b: &Battle| b.mon(r).is_active && !b.mon(r).fainted;
+                let (was, now) = (on(before).then(|| before.shown_as(r)), on(after).then(|| after.shown_as(r)));
+                let borrowed = &mut next.borrowed[side][idx];
+                if was.is_none() && now.is_some() {
+                    // (A new stay.)
+                    *borrowed = Borrowed::default();
+                }
+                // The disguise is told: it stood under another name at the last decision, and as itself now.
+                if let (Some(w), Some(n)) = (was, now)
+                    && w != idx
+                    && n == idx
+                {
+                    if borrowed.record == Some(w as u8) {
+                        told[side][w] = borrowed.before;
+                        told[side][idx] =
+                            if borrowed.began { borrowed.runs } else { told[side][idx].saturating_add(borrowed.runs) };
+                    }
+                    *borrowed = Borrowed::default();
+                }
+                let j = now.or(was).unwrap_or(idx);
+                let (c0, c1) = (self.sleep[side][idx], next.sleep[side][idx]);
+                let runs = if fresh[side][idx] { c1 } else { c1.saturating_sub(c0) };
+                if after.mon(r).status != Status::Slp {
+                    // Awake: the name it woke under shows no sleep.
+                    if before.mon(r).status == Status::Slp {
+                        told[side][j] = 0;
+                        borrowed.runs = 0;
+                    }
+                } else if j != idx {
+                    if borrowed.record != Some(j as u8) {
+                        *borrowed = Borrowed { record: Some(j as u8), runs: 0, before: told[side][j], began: false };
+                    }
+                    if fresh[side][idx] {
+                        (borrowed.runs, borrowed.began, told[side][j]) = (0, true, 0);
+                    }
+                    borrowed.runs = borrowed.runs.saturating_add(runs);
+                    told[side][j] = told[side][j].saturating_add(runs);
+                } else {
+                    told[side][idx] = if fresh[side][idx] { runs } else { told[side][idx].saturating_add(runs) };
+                }
+            }
+        }
+        for side in 0..2 {
+            for a in 0..MAX_TEAM {
+                next.told_sleep[side][a] =
+                    if told[side][a] == next.sleep[side][a] { 0 } else { told[side][a].saturating_add(1) };
+            }
+        }
+        *self = next;
     }
 }
 
@@ -196,6 +371,18 @@ pub enum Untold {
     /// Speed Swap) this stay: they come from two spreads the player does not know, and a position
     /// that holds them is refused (as D77 refuses one split with the player's own).
     StatsShared { side: u8, team_index: u8 },
+    /// Where the player's own charging move is aimed when another move called it (Copycat) with two of
+    /// the other side standing: Showdown drew one (`getRandomTarget`) and the charging turn's line names
+    /// nobody. One of `locs`; the battle has the first.
+    ChargeTarget { side: u8, team_index: u8, locs: Vec<i8> },
+    /// Whether a status move of the other side's worked, its line naming no target and failing with no
+    /// word of why (`|-fail|X`), with a Substitute up on some of the Pokémon it may have been aimed at and
+    /// not all: one took it (it worked) or it failed at another. This turn's result (`move_this_turn`) or
+    /// last turn's (`move_last_turn`); the battle has it failed.
+    MoveResult { side: u8, team_index: u8, this_turn: bool },
+    /// Which of two Pokémon that used up the same item this turn Pickup took it from (Showdown samples
+    /// one, and the log names neither): that one's last item is gone. The battle has both keep it.
+    ItemTaken { side: u8, team_index: u8, other_side: u8, other_index: u8 },
 }
 
 /// An exact HP the player whose export this is worked out for one of the other side's Pokémon (a
@@ -474,7 +661,7 @@ impl Game {
         speed::record(&mut self.events, || b.choose(choices))?;
         self.timers.update(b);
         self.speeds.digest(&self.events, b);
-        self.counts.update(&before, b);
+        self.counts.update(&before, b, &self.events);
         self.untold.clear();
         self.hp_seen.clear();
         Ok(())
