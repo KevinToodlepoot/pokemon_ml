@@ -482,7 +482,9 @@ fn root_state_differs(case: &FollowCase, fields: &[&str]) -> Vec<String> {
 /// Synchronize's and Heal Block's lines, a Substitute's share of a status move, Curse's aim, and more); 74-89
 /// the third's (a revived Pokémon passed in, Ripen, Trace at entry, Counter's and Metal Burst's PP, a disguise's item);
 /// 90-97 the fourth's (an Instruct while asleep, a Substitute's share, Trace at a Mega Evolution, Flower Veil, a redirect);
-/// 98 the real-team re-measure's (S3b.8: a Pokémon revived where it fainted, before anyone replaced it, scripted).
+/// 98 the real-team re-measure's (S3b.8: a Pokémon revived where it fainted, before anyone replaced it, scripted);
+/// 99 its gate 1's rotating seed (a doubt over Pressure's PP behind a charge made in disguise, the Zoroark's once the
+/// disguise drops).
 #[test]
 fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
     use vgc_engine::replay::{ExportTally, check_export};
@@ -525,7 +527,7 @@ fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
         }
         wrong.extend(root_state_differs(&case, fields(case.id)));
     }
-    assert!(text.lines().count() >= 98, "{} battles", text.lines().count());
+    assert!(text.lines().count() >= 99, "{} battles", text.lines().count());
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);

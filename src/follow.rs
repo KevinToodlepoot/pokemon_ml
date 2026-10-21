@@ -228,9 +228,10 @@ struct Spot {
     busted: bool,
     /// What this stay has filed under the number it went by, for [`Follower::game_state`]: the other
     /// side's PP spent (and given back), the item used up (and what was filed before), the first move
-    /// used (and when). If a disguise drops (`|replace|`), it is all its
-    /// own: the Zoroark spent the PP, used the item, and its Choice item held it to that move.
+    /// used (and when), the doubts over Pressure's PP (by move, how many). If a disguise drops (`|replace|`),
+    /// it is all its own: the Zoroark spent the PP, used the item, and its Choice item held it to that move.
     spent: Vec<(u16, i16)>,
+    doubted: Vec<(u16, u8)>,
     used: Option<((u16, bool), (u16, bool))>,
     first: Option<(u16, u32)>,
     /// It has used the move a rampage locks it into this turn (or begun one). A rampage is renewed
@@ -381,6 +382,7 @@ impl Spot {
             rampage_seq: 0,
             busted: false,
             spent: Vec::new(),
+            doubted: Vec::new(),
             used: None,
             first: None,
             reordered: None,
@@ -2384,6 +2386,17 @@ impl Follower {
             }
         }
         self.spots[opp][pos].spent = spent;
+        // The doubts over Pressure's PP it left, as the PP it spent.
+        for &(id, n) in &self.spots[opp][pos].doubted {
+            if let Some(d) = self.pressure_doubt.iter_mut().find(|d| (d.0, d.1) == (was, id)) {
+                d.2 = d.2.saturating_sub(n);
+            }
+            match self.pressure_doubt.iter_mut().find(|d| (d.0, d.1) == (now, id)) {
+                Some(d) => d.2 = d.2.saturating_add(n),
+                None => self.pressure_doubt.push((now, id, n)),
+            }
+        }
+        self.pressure_doubt.retain(|d| d.2 > 0);
         // Who it attacked this stay: filed under the number it passed for, which is its own. (What the
         // Pokémon it passed for did under that number, in a stay of its own, stays with it.)
         let stay = self.spots[opp][pos].stay;
@@ -3388,6 +3401,11 @@ impl Follower {
                             match self.pressure_doubt.iter_mut().find(|d| (d.0, d.1) == (entry, paying)) {
                                 Some(d) => d.2 = d.2.saturating_add(1),
                                 None => self.pressure_doubt.push((entry, paying, 1)),
+                            }
+                            let doubted = &mut self.spots[side][pos].doubted;
+                            match doubted.iter_mut().find(|d| d.0 == paying) {
+                                Some(d) => d.1 = d.1.saturating_add(1),
+                                None => doubted.push((paying, 1)),
                             }
                         }
                         if self.their_pp.len() <= entry {
