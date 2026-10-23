@@ -174,9 +174,11 @@ struct Spot {
     /// Showdown drew then (`getRandomTarget`), which the charging turn's line does not name; `Some(None)`
     /// with two standing, which its player is not told (D89; [`Untold::ChargeTarget`]).
     charge_aim: Option<Option<i8>>,
-    /// Its sleep this stay under the number it goes by (D96): that number's count before, the runs it made,
-    /// and whether the sleep began this stay. A disguise told (`replace`) takes them to its own number.
-    sleep_here: Option<(u8, u8, bool)>,
+    /// Its sleep this stay under the name it goes by (D96): that name's count before, the runs it made,
+    /// whether the sleep began this stay, and the name's number (`their_name`; its own number, where it is
+    /// not taken for the copy of a look-alike beside it). A disguise told (`replace`) takes them to its own
+    /// number.
+    sleep_here: Option<(u8, u8, bool, u8)>,
     /// The position it stood in as the turn began, where its action was resolved (`Battle#resolveAction`): a
     /// non-Ghost Curse is aimed there, though an Ally Switch has moved it since.
     turn_pos: Option<usize>,
@@ -1757,6 +1759,15 @@ impl Follower {
         if copy { s.team.len().min(MAX_TEAM - 1) } else { here.entry.min(MAX_TEAM - 1) }
     }
 
+    /// The number of the name the other side's Pokémon at `pos` goes by: its own, or, for the one of two
+    /// on the field that look the same taken for the copy, the number of the one it passes for. The
+    /// other side's sleep counts are kept by name (D96, `Counts::update`): what `counts.sleep` holds under
+    /// a number is the runs the log has shown under that name in the current sleep, by whoever made them.
+    fn their_name(&self, pos: usize) -> usize {
+        let s = &self.reader.sides[1 - self.side];
+        s.active[pos].as_ref().map_or(MAX_TEAM - 1, |here| here.entry.min(MAX_TEAM - 1))
+    }
+
     // ------------------------------------------------------------ the log
 
     /// Takes in one line of the battle's log, as this player is sent it.
@@ -2074,22 +2085,36 @@ impl Follower {
         if kind == "replace" {
             // A disguise dropped where it stood: what the stay filed under the number it passed for is the
             // Pokémon's own.
+            let mut sleeps = Vec::new();
             for pos in 0..ACTIVE {
                 let now = self.their_index(pos);
                 if self.spots[opp][pos].stay == were[pos].0 && were[pos].1 != now {
                     self.refile_disguise(pos, were[pos].1, now);
-                    // Its sleep this stay too: the runs it made under that number are its own, and the
-                    // number's count is what it was before them (D96).
                     let was = were[pos].1;
-                    if let Some((before, runs, began)) = self.spots[opp][pos].sleep_here.take()
+                    if let Some(here) = self.spots[opp][pos].sleep_here.take()
                         && was < MAX_TEAM
                         && now < MAX_TEAM
                     {
-                        let own = self.counts.sleep[opp][now];
-                        self.counts.sleep[opp][now] = if began { runs } else { own.saturating_add(runs) };
-                        self.counts.sleep[opp][was] = before;
+                        sleeps.push((was, now, here));
                     }
                     refiled.push(now);
+                }
+            }
+            // Its sleep this stay too (D96): the runs it made under the name it passed for are its own, and
+            // that name's count is what it was before them. One that takes the name's own number was the
+            // Pokémon itself all along, taken for the copy of the one just shown as a disguise: its runs
+            // stand under the name already (`their_name`), and stay. A number past the team that either
+            // leaves is nobody's now (cleared first: the disguise shown may be listed at that number).
+            for &(was, now, (_, _, _, name)) in &sleeps {
+                if was != now && was != name as usize {
+                    self.counts.sleep[opp][was] = 0;
+                }
+            }
+            for &(_, now, (before, runs, began, name)) in &sleeps {
+                if now != name as usize {
+                    let own = self.counts.sleep[opp][now];
+                    self.counts.sleep[opp][now] = if began { runs } else { own.saturating_add(runs) };
+                    self.counts.sleep[opp][name as usize] = before;
                 }
             }
         }
@@ -5237,10 +5262,18 @@ impl Follower {
                     // (Early Bird wakes it twice as fast, unless Gastro Acid has suppressed it.)
                     let early =
                         self.ability_at(side, pos) == ab::EARLYBIRD && !self.spots[side][pos].has(VolKind::Gastroacid);
-                    let was = self.counts.sleep[side][idx];
-                    let here = self.spots[side][pos].sleep_here.get_or_insert((was, 0, false));
-                    here.1 = here.1.saturating_add(1 + early as u8);
-                    self.counts.sleep[side][idx] = was.saturating_add(1 + early as u8);
+                    let runs = 1 + early as u8;
+                    // The run is told under the name it goes by (D96): one of two on the field that look the
+                    // same, taken for the copy and numbered past the one it passes for, adds its run to that
+                    // name's count as well as to its own, as the game does (`Counts::update`).
+                    let name = if side == self.side { idx } else { self.their_name(pos) };
+                    let was = self.counts.sleep[side][name];
+                    let here = self.spots[side][pos].sleep_here.get_or_insert((was, 0, false, name as u8));
+                    here.1 = here.1.saturating_add(runs);
+                    self.counts.sleep[side][idx] = self.counts.sleep[side][idx].saturating_add(runs);
+                    if name != idx {
+                        self.counts.sleep[side][name] = was.saturating_add(runs);
+                    }
                 }
             }
             "-fail" => {
@@ -5501,9 +5534,15 @@ impl Follower {
                     self.boosted_at.push((side, pos));
                 }
                 if arg(3) == "slp" {
-                    let was = self.counts.sleep[side][idx];
-                    let here = self.spots[side][pos].sleep_here.get_or_insert((was, 0, false));
+                    // A sleep begun under a name starts that name's count over (D96); the count before it is
+                    // kept against the disguise being told.
+                    let name = if side == self.side { idx } else { self.their_name(pos) };
+                    let was = self.counts.sleep[side][name];
+                    let here = self.spots[side][pos].sleep_here.get_or_insert((was, 0, false, name as u8));
                     (here.1, here.2) = (0, true);
+                    if name != idx {
+                        self.counts.sleep[side][name] = 0;
+                    }
                 }
                 self.counts.sleep[side][idx] = 0;
                 self.frozen[side][idx] = 0;
@@ -5513,6 +5552,13 @@ impl Follower {
                 (self.counts.sleep[side][idx], self.counts.rest[side][idx]) = (0, false);
                 if let Some(here) = self.spots[side][pos].sleep_here.as_mut() {
                     here.1 = 0;
+                }
+                // Awake: the name it woke under shows no sleep (D96).
+                if arg(3) == "slp" && side != self.side {
+                    let name = self.their_name(pos);
+                    if name != idx {
+                        self.counts.sleep[side][name] = 0;
+                    }
                 }
             }
             "-boost" | "-unboost" => {
@@ -6694,18 +6740,11 @@ impl Follower {
                 }
             }
         }
-        // The other side's Pokémon that goes by another's name here (one of two on the field that look the same,
-        // an Illusion Pokémon beside the one it copies, which share that one's token) is counted asleep under
-        // that name, the first on the field first (D96).
-        let opp = 1 - self.side;
-        for pos in 0..ACTIVE.min(b.sides[opp].n as usize) {
-            let r = b.active(opp, pos);
-            let a = b.shown_as(r);
-            if b.shown_live(r) && a != r.idx as usize && c.told_sleep[opp][a] == 0 {
-                let slept = if b.mon(r).status == Status::Slp { self.counts.sleep[opp][r.idx as usize] } else { 0 };
-                c.told_sleep[opp][a] = slept.saturating_add(1);
-            }
-        }
+        // (The other side's sleep counts are kept by name already, `their_name`: one of two on the field that
+        // look the same, taken for the copy, makes its runs under the name it passes for as well as under its
+        // own number, so the name's count is what the log has shown under it, by whoever made them (D96).
+        // Until S4.5a the copy's own count stood in for the name's here, which put an awake copy's 0 on a
+        // name asleep beside it.)
         c
     }
 
