@@ -1319,6 +1319,41 @@ fn lock_on_syrup_bomb_and_future_sight_are_counted_as_the_game_counts_them() {
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
 }
 
+/// What gate 1's rotating seed of 2026-10-22 found on the DGX Spark (vgc-bot S4.5a), both on the
+/// checking side, the follower right in each: a Thrash's second turn under Gravity in Misty Terrain,
+/// where the end's confusion would have been taken without a word at the move (Misty Terrain asks
+/// `isGrounded` then) though Gravity ended with the turn, so the walk, judging grounding at the step's
+/// end, saw no case where the follower listed one (battle 1451); and a Pokémon in disguise, asleep,
+/// knocked out as its disguise dropped, where the game's count for the name it passed for went to 0,
+/// as if the name had woken, while the follower kept the name's own turn asleep (battle 492).
+#[test]
+fn what_the_spark_rotating_seed_found_is_right() {
+    use vgc_engine::replay::{ExportTally, check_export};
+    let (mut tally, mut exports) = (FollowTally::default(), ExportTally::default());
+    let text = include_str!("fixtures/s45a_spark_regressions.jsonl");
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_value(with_state(line)).unwrap();
+        assert!(case.has_every_state());
+        for outcome in [check_follow(&case, &mut tally), check_export(&case, &mut exports)] {
+            match outcome {
+                Outcome::Pass(_) => {}
+                Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+                Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+            }
+        }
+    }
+    assert_eq!(text.lines().count(), 2);
+    assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    // The Leafeon's sleep count is compared at every decision it stands asleep (the one its disguise fell under).
+    assert!(tally.counted.get("mon: sleep count").is_some_and(|&n| n > 0), "{:?}", tally.counted);
+    let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
+    assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
+    // The Thrash's silent end is a case the walk knows, and the export lists it, and nothing more (D94).
+    assert_eq!((exports.untold_missing, exports.untold_unrecognised), (0, 0), "{:#?}", exports.first);
+    assert!(exports.unsaid.get("rampage").is_some_and(|&n| n >= 1), "{:?}", exports.unsaid);
+    assert!(exports.untold.get("rampage").is_some_and(|&n| n >= 1), "{:?}", exports.untold);
+}
+
 /// The same from the outside, as a client uses it: lines and requests in,
 /// an observation and a reply out.
 #[test]

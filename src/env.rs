@@ -316,8 +316,19 @@ impl Counts {
                 let (c0, c1) = (self.sleep[side][idx], next.sleep[side][idx]);
                 let runs = if fresh[side][idx] { c1 } else { c1.saturating_sub(c0) };
                 if after.mon(r).status != Status::Slp {
-                    // Awake: the name it woke under shows no sleep.
-                    if before.mon(r).status == Status::Slp {
+                    if before.mon(r).status == Status::Slp && after.mon(r).fainted && j != idx {
+                        // Fainted in disguise, asleep: nothing woke under the name. Where the faint told the
+                        // disguise (`replace` before `faint`: the name's record is not the one shown fainted),
+                        // the runs it made under the borrowed name are its own and the name's count goes back
+                        // to what it was before them; where it fell under the name without a word (a residual
+                        // faint, Showdown's `onFaint` clearing the Illusion silently), they stay with the name,
+                        // as the log showed them.
+                        if borrowed.record == Some(j as u8) && !after.sides[side].shown[j].fainted {
+                            told[side][j] = borrowed.before;
+                        }
+                        borrowed.runs = 0;
+                    } else if before.mon(r).status == Status::Slp {
+                        // Awake: the name it woke under shows no sleep.
                         told[side][j] = 0;
                         borrowed.runs = 0;
                     }

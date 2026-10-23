@@ -3,7 +3,7 @@
 //! binary and by the fixture test in `tests/`.
 
 use crate::data::{
-    ABILITIES, Gender, ITEMS, MOVES, SPECIES, SideCond, SlotCond, Terrain, Type, VolKind, Weather, ab, it,
+    ABILITIES, Gender, ITEMS, MOVES, Pseudo, SPECIES, SideCond, SlotCond, Terrain, Type, VolKind, Weather, ab, it,
 };
 use crate::observer::Observer;
 use crate::position::BattleState;
@@ -1823,7 +1823,7 @@ impl UnsaidTracker {
         // leaves the field (and a forme change, which works stats out afresh).
         let mut confused = self.confused;
         let mut misty = self.misty;
-        let mut ground = *b;
+        let ground = *b;
         for (k, p) in lines.iter().enumerate() {
             let kind = p.get(1).copied().unwrap_or("");
             let place = p.get(2).and_then(|w| Self::place(w));
@@ -1930,7 +1930,48 @@ impl UnsaidTracker {
                             });
                         let m = b.mon(r);
                         let own_tempo = m.ability == ab::OWNTEMPO && !b.vols(r).has(VolKind::Gastroacid);
-                        let silent = confused[s][q] || own_tempo || (misty && ground.is_grounded(r, false));
+                        // Grounded as it stood at the move (Misty Terrain's `onTryAddVolatile` asks `isGrounded`
+                        // then, in the move's `onAfterMove`), not at the step's end: the later lines of the step
+                        // may have changed it (Gravity ending at the turn's end, a Magnet Rise lapsing, an Air
+                        // Balloon popped, Smack Down or Ingrain landing after the move), and are undone here.
+                        let grounded = {
+                            let mut g = ground;
+                            let on_it = |x: &Vec<&str>| x.get(2).is_some_and(|w| w.starts_with(&tag));
+                            for x in &lines[k + 1..] {
+                                match (x.get(1).copied(), x.get(3).copied()) {
+                                    (Some("-fieldend"), _) if x.get(2) == Some(&"move: Gravity") => {
+                                        if !g.field.pseudo.has(Pseudo::Gravity) {
+                                            g.field.pseudo.push(Cond::new(Pseudo::Gravity));
+                                        }
+                                    }
+                                    (Some("-fieldstart"), _) if x.get(2) == Some(&"move: Gravity") => {
+                                        g.field.pseudo.remove(Pseudo::Gravity);
+                                    }
+                                    (Some("-end"), Some("Magnet Rise")) if on_it(x) => {
+                                        if let Some(v) = g.vols_mut(r)
+                                            && !v.has(VolKind::Magnetrise)
+                                            && !v.is_full()
+                                        {
+                                            v.push(Cond::new(VolKind::Magnetrise));
+                                        }
+                                    }
+                                    (Some("-start"), Some(what @ ("Magnet Rise" | "Smack Down" | "move: Ingrain"))) if on_it(x) => {
+                                        let kind = match what {
+                                            "Magnet Rise" => VolKind::Magnetrise,
+                                            "Smack Down" => VolKind::Smackdown,
+                                            _ => VolKind::Ingrain,
+                                        };
+                                        if let Some(v) = g.vols_mut(r) {
+                                            v.remove(kind);
+                                        }
+                                    }
+                                    (Some("-enditem"), Some("Air Balloon")) if on_it(x) => g.mon_mut(r).item = it::AIRBALLOON,
+                                    _ => {}
+                                }
+                            }
+                            g.is_grounded(r, false)
+                        };
+                        let silent = confused[s][q] || own_tempo || (misty && grounded);
                         if hit && silent {
                             let u = Unsaid::Rampage { side: s, species: species(r) };
                             self.rampages.retain(|&(s2, i2, _)| (s2, i2) != (s, i));
