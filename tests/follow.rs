@@ -1351,19 +1351,29 @@ fn what_the_spark_rotating_seed_found_is_right() {
             }
         }
     }
-    assert_eq!(text.lines().count(), 5);
+    assert_eq!(text.lines().count(), 8);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     // R2's gate 3 (game 4268): a Ceruledge Encored into a Protect the foe's Imprison then sealed, its side's last
     // active, is shown its real moves and says `move 4`; Showdown takes it and plays Struggle, and so must the
     // engine's `choose` (its own listing names `move 1 2` for the same Struggle). The decision is one the player
     // is not shown the whole of, so its observation is passed over, as the tally counts.
     assert!(tally.hidden_disables >= 1, "{:?}", tally.hidden_disables);
+    // The rotating seed 20261026 (battle 1939): a Speed Swap on a Sneasler in Avalugg's disguise, the disguise then
+    // dropping (`|replace|`) while it stands. Its Speed is the Raichu's, which its own player cannot know, and the
+    // export goes on listing it (D77); the walk used to drop the case at the `replace` as if a forme had changed.
+    assert!(exports.untold.get("stats_shared").is_some_and(|&n| n >= 2), "{:?}", exports.untold);
     // The Leafeon's sleep count is compared at every decision it stands asleep (the one its disguise fell under),
     // and the Malamar's and the Dragapult's beside their look-alikes (26 decisions over the two gate 3 battles).
     assert!(tally.counted.get("mon: sleep count").is_some_and(|&n| n > 26), "{:?}", tally.counted);
+    // The same seed (battle 1873): a Raging Fury begun by an Infernape in Goodra's disguise, the disguise dropping
+    // on its second turn. The lock and its count went by the number the Infernape passed for, and the export had
+    // it free (`counts_differ`); they go with it to its own number now, as its sleep and freeze do.
     let bad = (exports.broken, exports.observed_differently, exports.counts_differ, exports.hp_bar_differ);
     assert_eq!(bad, (0, 0, 0, 0), "{:#?}", exports.first);
     // The Thrash's silent end is a case the walk knows, and the export lists it, and nothing more (D94).
+    // And the same seed (battle 1337): a Mabosstiff's Pickup from one of two that ate the same berry, then a
+    // Corviknight's, the one of the two that ate, picking up from the one left: the first took the Corviknight's.
+    // The export listed no doubt, rightly; the walk kept one (`untold_missing`) until a Trick ended it.
     assert_eq!((exports.untold_missing, exports.untold_unrecognised), (0, 0), "{:#?}", exports.first);
     assert!(exports.unsaid.get("rampage").is_some_and(|&n| n >= 1), "{:?}", exports.unsaid);
     assert!(exports.untold.get("rampage").is_some_and(|&n| n >= 1), "{:?}", exports.untold);

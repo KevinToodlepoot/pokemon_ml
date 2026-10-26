@@ -2122,12 +2122,32 @@ impl Follower {
             // What goes with a Pokémon's status (its turns asleep, frozen) goes with it to its new number:
             // a Pokémon passed for by a disguise beside it slept under a number of its own until then.
             let (sleep, frozen) = (self.counts.sleep[opp], self.frozen[opp]);
+            // So does a rampage's lock, with how far it has run (the rotating seed 20261026, battle 1873: a
+            // Raging Fury begun in a disguise, the disguise dropping on its second turn): filed under the number
+            // it went by when the move began. The number it leaves holds none, unless another takes it.
+            let (rampage, turns, silent, run) =
+                (self.rampage[opp], self.rampage_turns[opp], self.rampage_silent[opp], self.counts.rampage[opp]);
             for &(was, now, _) in &moved {
                 if was < MAX_TEAM && now < MAX_TEAM {
                     self.frozen[opp][now] = frozen[was];
                     if !refiled.contains(&now) {
                         self.counts.sleep[opp][now] = sleep[was];
                     }
+                    self.rampage[opp][now] = rampage[was];
+                    self.rampage_turns[opp][now] = turns[was];
+                    self.rampage_silent[opp][now] = silent[was];
+                    self.counts.rampage[opp][now] = run[was];
+                    if let Some((s, i)) = self.rampage_pending.as_mut()
+                        && (*s, *i) == (opp, was)
+                    {
+                        *i = now;
+                    }
+                }
+            }
+            for &(was, _, _) in &moved {
+                if was < MAX_TEAM && !moved.iter().any(|m| m.1 == was) {
+                    (self.rampage[opp][was], self.counts.rampage[opp][was]) = (NO_MOVE, 0);
+                    (self.rampage_turns[opp][was], self.rampage_silent[opp][was]) = (0, false);
                 }
             }
             let renumber = |r: &mut MonRef| {

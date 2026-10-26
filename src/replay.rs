@@ -1861,8 +1861,9 @@ impl UnsaidTracker {
                             confused[s][q] = false;
                             self.rampages.retain(|&(s2, i, _)| !(s2 == s && Some(i) == left));
                         }
-                        // (Its stats are its own again, or worked out afresh for its forme.)
-                        if let Some(i) = left.or(who[k][s][q]) {
+                        // (Its stats are its own again, or worked out afresh for its forme. Not at a `replace`:
+                        // a disguise dropping changes no stat, and a Speed Swap made in disguise stays.)
+                        if let Some(i) = left.or(who[k][s][q]).filter(|_| kind != "replace") {
                             let sp = SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id;
                             self.now.retain(|(_, u)| !matches!(u, Unsaid::StatsShared { side: s2, species: x } if *s2 == s && x == sp));
                         }
@@ -2096,6 +2097,17 @@ impl UnsaidTracker {
                     .map(|&(s, i, _)| (s, i))
                     .collect();
                 from.dedup();
+                // From the one left: it still had its berry, so a Pickup before it this turn, taking from one
+                // of two that this one was, took the other's (the rotating seed 20261026, battle 1337: a
+                // Corviknight that ate, then picked up what the Empoleon beside it ate, the Mabosstiff's Pickup
+                // before it having taken from one of the two).
+                if let [(s, i)] = from[..] {
+                    let sp = SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id;
+                    self.now.retain(|(_, u)| {
+                        !matches!(u, Unsaid::ItemTaken { side, species, other_side, other_species, .. }
+                            if (*side == s && species == sp) || (*other_side == s && other_species == sp))
+                    });
+                }
                 if let [(s, i), (s2, i2)] = from[..] {
                     let sp = |s: usize, i: u8| SPECIES[b.mon(crate::MonRef { side: s as u8, idx: i }).set_species as usize].id;
                     let u = Unsaid::ItemTaken {
