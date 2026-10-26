@@ -1351,8 +1351,13 @@ fn what_the_spark_rotating_seed_found_is_right() {
             }
         }
     }
-    assert_eq!(text.lines().count(), 4);
+    assert_eq!(text.lines().count(), 5);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
+    // R2's gate 3 (game 4268): a Ceruledge Encored into a Protect the foe's Imprison then sealed, its side's last
+    // active, is shown its real moves and says `move 4`; Showdown takes it and plays Struggle, and so must the
+    // engine's `choose` (its own listing names `move 1 2` for the same Struggle). The decision is one the player
+    // is not shown the whole of, so its observation is passed over, as the tally counts.
+    assert!(tally.hidden_disables >= 1, "{:?}", tally.hidden_disables);
     // The Leafeon's sleep count is compared at every decision it stands asleep (the one its disguise fell under),
     // and the Malamar's and the Dragapult's beside their look-alikes (26 decisions over the two gate 3 battles).
     assert!(tally.counted.get("mon: sleep count").is_some_and(|&n| n > 26), "{:?}", tally.counted);

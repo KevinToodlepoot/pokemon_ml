@@ -331,11 +331,13 @@ impl Battle {
         m.is_active && (m.position as usize + 1..ACTIVE).all(|p| self.mon(self.active(r.side as usize, p)).fainted)
     }
 
-    /// The one move choice of a Pokémon with no usable move, which Showdown
-    /// turns into Struggle. Normally that is `move 1`. But Showdown does not
-    /// tell a side's last active Pokémon which of its moves a foe's Imprison
-    /// has sealed, so there it lists the real moves and wants the choice
-    /// spelled like a use of the first one, target included.
+    /// The one move choice listed for a Pokémon with no usable move, which
+    /// Showdown turns into Struggle. Normally that is `move 1`. But Showdown does
+    /// not tell a side's last active Pokémon which of its moves a foe's Imprison
+    /// has sealed, so there it lists the real moves, and the choice is spelled
+    /// like a use of the first one, target included. (Showdown accepts a use of
+    /// any move it listed there, `struggle_ok`; this is the one the engine, the
+    /// oracle's recorder and the masks name for it.)
     fn struggle_choice(&self, r: MonRef) -> Choice {
         let m = self.mon(r);
         let listed = self.is_last_active(r) && m.moves[..m.n_moves as usize].iter().any(|s| s.hidden && s.pp > 0);
@@ -348,6 +350,28 @@ impl Battle {
             }
         }
         Choice::mv(0, 0)
+    }
+
+    /// Whether Showdown takes `move <slot+1> <target>` from a Pokémon with no
+    /// usable move (`Side#chooseMove`: with no move to use, any move slot the
+    /// request lists is accepted, its target checked against that move's target
+    /// type, and the choice becomes Struggle; a Mega flag is ignored). Shown
+    /// Struggle alone, the Pokémon can only say `move 1`. Shown its real moves
+    /// (its side's last active, a foe's Imprison sealing some of them unsaid), it
+    /// may name any of them: `move 4` for a sealed Protect under Encore, as a
+    /// player going by the request does. The engine lists `struggle_choice`
+    /// alone, but takes what Showdown takes.
+    fn struggle_ok(&self, r: MonRef, slot: u8, target: i8) -> bool {
+        let m = self.mon(r);
+        let listed = self.is_last_active(r) && m.moves[..m.n_moves as usize].iter().any(|s| s.hidden && s.pp > 0);
+        if !listed {
+            return slot == 0 && target == 0;
+        }
+        if slot >= m.n_moves {
+            return false;
+        }
+        let t = self.request_target(r, m.moves[slot as usize].id);
+        if t.is_chosen() { target != 0 && self.valid_target_loc(target, r, t) } else { target == 0 }
     }
 
     /// Every choice the given active slot may make at the current request.
@@ -457,8 +481,9 @@ impl Battle {
                         return c == Choice::mv(0, 0);
                     }
                     if !self.usable_moves(r) {
-                        // Struggle; Showdown would ignore a Mega flag here, so it is not offered.
-                        return c == self.struggle_choice(r);
+                        // Struggle, however the choice spells it; Showdown ignores a Mega flag here.
+                        let _ = mega;
+                        return self.struggle_ok(r, slot, target);
                     }
                     if slot >= m.n_moves || !Battle::slot_usable(&m.moves[slot as usize]) {
                         return false;
@@ -586,17 +611,21 @@ impl Battle {
                     Choice::Pass => {}
                     Choice::Move { slot, target, mega } => {
                         // A locked move goes where it was aimed. Struggle picks its
-                        // own target, whatever the choice said.
+                        // own target, whatever the choice said (and whichever slot it
+                        // named, `struggle_ok`).
                         let locked = self.mon(r).locked_move;
+                        let usable = self.usable_moves(r);
                         let (id, target) = if locked != NO_MOVE {
                             (locked, self.locked_move_loc(r, locked))
-                        } else if self.usable_moves(r) {
+                        } else if usable {
                             (self.mon(r).moves[slot as usize].id, target)
                         } else {
                             (struggle_id(), 0)
                         };
                         // The move, and ahead of it whatever goes with it (a Mega Evolution, ...).
-                        let (actions, n) = self.resolve_move_actions(r, id, target, mega && locked == NO_MOVE);
+                        // Showdown's `chooseMove` returns before it reads a Mega flag on a locked
+                        // move or on Struggle, so the flag does nothing there.
+                        let (actions, n) = self.resolve_move_actions(r, id, target, mega && locked == NO_MOVE && usable);
                         for a in &actions[..n] {
                             self.queue.push(*a);
                         }
