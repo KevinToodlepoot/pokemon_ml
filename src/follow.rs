@@ -861,6 +861,12 @@ pub struct Follower {
     /// clears a fainted Pokémon's status only on a side with someone to send in (since
     /// `4379269`), so one that stays where it fell keeps it. Nothing reads it; the game has it.
     faint_status: [[Option<(Status, u8)>; MAX_TEAM]; 2],
+    /// By side: the Pokémon sent in to replace the fainted since the turn's `upkeep`. Showdown asks for
+    /// them only on a side with someone to send in, which is `checkFainted`'s condition, judged before
+    /// they came in (R2's gate 3 at `63752e0`, game 3974: Perish Song felled both of a side at the
+    /// turn's end, after `upkeep`, with one left to send in; the one asleep kept its sleep in the
+    /// export, counted once the replacement stood beside it).
+    arrived: [u8; 2],
     /// How far the effects with a hidden length have run, as the log counts them (see
     /// [`Counts`]), by side and the team index of [`Follower::game_state`].
     counts: Counts,
@@ -1283,6 +1289,7 @@ impl Follower {
             roused: None,
             upkept: false,
             faint_status: [[None; MAX_TEAM]; 2],
+            arrived: [0; 2],
             counts: Counts::default(),
             fainted_now: [false; 2],
             fainted_last: [false; 2],
@@ -1976,9 +1983,13 @@ impl Follower {
         if matches!(kind, "switch" | "drag")
             && let Some((s, p)) = who
             && self.reader.sides[s].active[p].as_ref().is_some_and(|l| l.gone)
-            && let Some(key) = self.faint_key(s, p)
         {
-            self.faint_status[s][key] = None;
+            if self.upkept {
+                self.arrived[s] = self.arrived[s].saturating_add(1);
+            }
+            if let Some(key) = self.faint_key(s, p) {
+                self.faint_status[s][key] = None;
+            }
         }
         // (A move's `TryMove`, settled by this line, came before what this line says happened, the reader's taking it
         // in included: a Magic Room it put up, an Ally Switch's swap.)
@@ -2280,7 +2291,10 @@ impl Follower {
             let s = &self.reader.sides[side];
             let size = if s.size == 0 { 4 } else { s.size as usize };
             let standing = (0..ACTIVE).filter(|&p| s.active[p].as_ref().is_some_and(|l| !l.gone)).count();
-            if size <= s.fainted as usize + standing {
+            // (A replacement that has come in since `upkeep` says there was someone to send in: Showdown's
+            // condition is read before the replacements, and a faint after `upkeep`, Perish Song's, is checked
+            // only once they stand.)
+            if self.arrived[side] == 0 && size <= s.fainted as usize + standing {
                 continue;
             }
             for pos in 0..ACTIVE {
@@ -2862,6 +2876,7 @@ impl Follower {
                 self.turn = arg(2).parse().map_err(|_| "unreadable turn".to_string())?;
                 self.encore_queued = [None; ACTIVE];
                 self.check_fainted();
+                self.arrived = [0; 2];
                 self.upkept = false;
                 (self.fainted_last, self.fainted_now) = (self.fainted_now, [false; 2]);
                 for side in 0..2 {
@@ -2909,6 +2924,7 @@ impl Follower {
             "upkeep" => {
                 self.upkeep();
                 self.upkept = true;
+                self.arrived = [0; 2];
                 self.check_fainted();
                 return Ok(());
             }

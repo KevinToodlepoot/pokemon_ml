@@ -1351,7 +1351,7 @@ fn what_the_spark_rotating_seed_found_is_right() {
             }
         }
     }
-    assert_eq!(text.lines().count(), 8);
+    assert_eq!(text.lines().count(), 9);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     // R2's gate 3 (game 4268): a Ceruledge Encored into a Protect the foe's Imprison then sealed, its side's last
     // active, is shown its real moves and says `move 4`; Showdown takes it and plays Struggle, and so must the
@@ -1365,6 +1365,9 @@ fn what_the_spark_rotating_seed_found_is_right() {
     // The Leafeon's sleep count is compared at every decision it stands asleep (the one its disguise fell under),
     // and the Malamar's and the Dragapult's beside their look-alikes (26 decisions over the two gate 3 battles).
     assert!(tally.counted.get("mon: sleep count").is_some_and(|&n| n > 26), "{:?}", tally.counted);
+    // R2's gate 3 at 63752e0 (game 3974): Perish Song felled both of p2's Pokémon after `upkeep`, one of them asleep,
+    // with one left to send in; `checkFainted` cleared both statuses before the replacement came in, and the follower,
+    // judging "someone to send in" once it stood, kept the sleeper's sleep and its count (`counts_differ`).
     // The same seed (battle 1873): a Raging Fury begun by an Infernape in Goodra's disguise, the disguise dropping
     // on its second turn. The lock and its count went by the number the Infernape passed for, and the export had
     // it free (`counts_differ`); they go with it to its own number now, as its sleep and freeze do.
