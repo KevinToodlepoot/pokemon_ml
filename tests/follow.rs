@@ -1351,7 +1351,7 @@ fn what_the_spark_rotating_seed_found_is_right() {
             }
         }
     }
-    assert_eq!(text.lines().count(), 9);
+    assert_eq!(text.lines().count(), 10);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     // R2's gate 3 (game 4268): a Ceruledge Encored into a Protect the foe's Imprison then sealed, its side's last
     // active, is shown its real moves and says `move 4`; Showdown takes it and plays Struggle, and so must the
@@ -1368,6 +1368,9 @@ fn what_the_spark_rotating_seed_found_is_right() {
     // R2's gate 3 at 63752e0 (game 3974): Perish Song felled both of p2's Pokémon after `upkeep`, one of them asleep,
     // with one left to send in; `checkFainted` cleared both statuses before the replacement came in, and the follower,
     // judging "someone to send in" once it stood, kept the sleeper's sleep and its count (`counts_differ`).
+    // R2's gate 3 at 8828f9b (game 2721): a Golisopod's Emergency Exit at the turn's end beside a fallen Sneasler,
+    // the side's one reserve going to the Sneasler's slot and the Golisopod passed over; the follower kept it as
+    // switching, and its export at the next move request did not load (`broken`: a switch flag at a move request).
     // The same seed (battle 1873): a Raging Fury begun by an Infernape in Goodra's disguise, the disguise dropping
     // on its second turn. The lock and its count went by the number the Infernape passed for, and the export had
     // it free (`counts_differ`); they go with it to its own number now, as its sleep and freeze do.

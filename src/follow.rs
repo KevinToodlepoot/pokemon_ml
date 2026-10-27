@@ -2894,6 +2894,11 @@ impl Follower {
                         (spot.begun, spot.reordered, spot.overridden, spot.quick) = (0, None, None, false);
                         spot.quick_again = false;
                         spot.rampage_moved = false;
+                        // An Emergency Exit's switch flag lasts to the turn's end: one that stayed, its side's one
+                        // reserve gone to a fainted slot, is not switching any more (R2's gate 3 at `8828f9b`,
+                        // game 2721: a Golisopod brought under half by poison beside a fallen Sneasler, passed
+                        // over at the replacement request, its export then refused at the next move request).
+                        spot.exiting = false;
                         // Showdown says at the end of a turn what a Pokémon's types have
                         // become, if they have changed: one of the follower's own that took
                         // a foe's types and has heard nothing has the ones it had.
