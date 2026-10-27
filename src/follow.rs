@@ -2923,7 +2923,7 @@ impl Follower {
                 for spot in self.spots.iter_mut().flatten() {
                     spot.hit_by.retain(|(stay, _)| here.contains(stay));
                 }
-                // (A Revival Blessing nobody was brought back with is over with its turn.)
+                // (A Revival Blessing nobody was brought back with ended at `upkeep`; a turn without one, the same.)
                 for slots in self.field.sides.iter_mut().flat_map(|s| s.slots.iter_mut()) {
                     slots.retain(|c| c.0 != SlotCond::Revivalblessing);
                 }
@@ -2935,6 +2935,13 @@ impl Follower {
                 self.upkeep();
                 self.upkept = true;
                 self.check_fainted();
+                // A Revival Blessing nobody was brought back with lasts one turn (`duration: 1`): the residual ends
+                // it, before the replacement request that follows (R2's gate 3 at `972e82f`, game 7012: a Pawmot's
+                // Revival Blessing passed over by its player, the condition still on the slot at the other side's
+                // replacement request).
+                for slots in self.field.sides.iter_mut().flat_map(|s| s.slots.iter_mut()) {
+                    slots.retain(|c| c.0 != SlotCond::Revivalblessing);
+                }
                 return Ok(());
             }
             "win" => {
