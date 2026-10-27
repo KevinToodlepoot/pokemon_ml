@@ -1351,7 +1351,7 @@ fn what_the_spark_rotating_seed_found_is_right() {
             }
         }
     }
-    assert_eq!(text.lines().count(), 11);
+    assert_eq!(text.lines().count(), 12);
     assert_eq!(tally.wrong, 0, "observations differ: {:#?}", tally.by_feature);
     // R2's gate 3 (game 4268): a Ceruledge Encored into a Protect the foe's Imprison then sealed, its side's last
     // active, is shown its real moves and says `move 4`; Showdown takes it and plays Struggle, and so must the
@@ -1374,6 +1374,10 @@ fn what_the_spark_rotating_seed_found_is_right() {
     // R2's gate 3 at 972e82f (game 7012): a Pawmot's Revival Blessing passed over by its player; Showdown's slot
     // condition lasts one turn and ended at the residual, the follower's stood to the next `turn`, and the other
     // side's replacement request between them saw it (2 observations, `slot revivalblessing`).
+    // The rotating seed 20261026 (battle 1129, taken by name in gate 1 until this fix): a Rested Orthworm roared
+    // in beside its Zoroark look-alike, asleep for a run there, roared out and back in where the look-alike had
+    // stood; the look-alike, left alone with the name, took the name's number with its own count of 0 over the
+    // run the log had shown under the name, so the Orthworm came back to a count of 0 (2 observations, side 0).
     // The same seed (battle 1873): a Raging Fury begun by an Infernape in Goodra's disguise, the disguise dropping
     // on its second turn. The lock and its count went by the number the Infernape passed for, and the export had
     // it free (`counts_differ`); they go with it to its own number now, as its sleep and freeze do.

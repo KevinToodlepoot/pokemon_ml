@@ -2146,10 +2146,16 @@ impl Follower {
             // it went by when the move began. The number it leaves holds none, unless another takes it.
             let (rampage, turns, silent, run) =
                 (self.rampage[opp], self.rampage_turns[opp], self.rampage_silent[opp], self.counts.rampage[opp]);
+            // (But a name's count is the runs the log has shown under that name, by whoever made them (D96), and
+            // the copy's own were added to it as they were told: one that takes a name's number as the other of
+            // the two leaves finds its runs there already. The rotating seed 20261026, battle 1129: a Rested
+            // Orthworm roared in beside its Zoroark look-alike and out again, the look-alike then taking the name's
+            // number with its own count of 0 in place of the run the Orthworm had made under the name.)
+            let names = self.reader.sides[opp].team.len();
             for &(was, now, _) in &moved {
                 if was < MAX_TEAM && now < MAX_TEAM {
                     self.frozen[opp][now] = frozen[was];
-                    if !refiled.contains(&now) {
+                    if !refiled.contains(&now) && now >= names {
                         self.counts.sleep[opp][now] = sleep[was];
                     }
                     self.rampage[opp][now] = rampage[was];
