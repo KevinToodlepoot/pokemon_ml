@@ -321,9 +321,13 @@ struct Spot {
     damaged_by: Vec<(usize, usize, u16, u32)>,
     result_now: Option<Option<bool>>,
     result_last: Option<Option<bool>>,
-    /// It fainted in the course of its own move (Explosion, a recoil, a Rocky Helmet): its team index. Showdown
-    /// files that move's result after the faint has cleared its record ([`Follower::ko_result`]).
+    /// It fainted while its own move's hits were still being made (Explosion, a Rocky Helmet, a Destiny Bond): its
+    /// team index. Showdown files that move's result after the faint has cleared its record
+    /// ([`Follower::ko_result`]). Not one the move's own price took after the hits (`own_price`): its faint comes
+    /// once the result is filed, and clears it.
     fell_moving: Option<usize>,
+    /// The damage that brought it to nothing was the price of its own move (recoil, a Life Orb, a crash).
+    own_price: bool,
     /// This turn's result and last turn's are untold (D89; [`Untold::MoveResult`]): a status move of the
     /// other side's whose line named no target failed with no word of why, with a Substitute up on some of
     /// the Pokémon it may have been aimed at (taken by one, the move worked).
@@ -424,6 +428,7 @@ impl Spot {
             result_doubt: [false; 2],
             result_last: None,
             fell_moving: None,
+            own_price: false,
             aimed: 0,
             lowered: false,
             raised: false,
@@ -3103,6 +3108,11 @@ impl Follower {
         let (third, fourth) = (self.place_of(arg(3)), self.place_of(arg(4)));
         let of =
             parts.iter().find_map(|p| p.strip_prefix("[of] ")).and_then(ident).and_then(|o| o.pos.map(|p| (o.side, p)));
+        if kind == "-damage" && arg(3).starts_with("0 fnt") {
+            // What brought it to nothing: the price of its own move (recoil, a Life Orb, a crash: a cause with no
+            // Pokémon behind it), which the move takes after its hits are done, or anything else.
+            self.spots[side][pos].own_price = !from.is_empty() && of.is_none();
+        }
         match kind {
             "switch" | "drag" => self.enter(side, pos, id.name, arg(4), from),
             "replace" => {
@@ -3151,7 +3161,7 @@ impl Follower {
                     }
                 }
                 self.faints[side] = self.faints[side].saturating_add(1);
-                if self.under_way.is_some_and(|u| u.0 == (side, pos)) {
+                if self.under_way.is_some_and(|u| u.0 == (side, pos)) && !self.spots[side][pos].own_price {
                     self.spots[side][pos].fell_moving = Some(self.mon_ref(side, pos).idx as usize);
                 }
                 let left = self.spots[side][pos].stay;
