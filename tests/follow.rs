@@ -539,6 +539,27 @@ fn what_the_belief_roots_found_the_export_getting_wrong_is_right() {
     }
 }
 
+/// The other side's PP as its opponent counts it (vgc-bot PLAN §5j W2.3): Expanding Force from a grounded user under
+/// Psychic Terrain goes for both of the viewer's side, so each of them with Pressure takes a PP more, as on the
+/// user's own side's path. A recorded game of two search agents (its first four steps; no Showdown state on it): the
+/// export's PP of every move is the game's at every decision.
+#[test]
+fn the_other_sides_expanding_force_pays_pressure_through_its_spread() {
+    let text = include_str!("fixtures/other_side_pp.jsonl");
+    let mut tally = FollowTally::default();
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        match check_follow(&case, &mut tally) {
+            Outcome::Pass(_) => {}
+            Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+            Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+        }
+        let wrong = root_state_differs(&case, &["moves.pp"]);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+    assert_eq!((text.lines().count(), tally.wrong), (1, 0), "{:#?}", tally.by_feature);
+}
+
 /// What the state gate's first run on skilled play (S3b.6, D74) found the follower's export getting
 /// wrong, each in a battle scripted to reach it (Dex sets, `gen_cases.js --script`; the battle's
 /// name says which): at every decision the export observes as its follower does, counts as the

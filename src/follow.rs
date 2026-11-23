@@ -3410,7 +3410,16 @@ impl Follower {
                     // The other side's PP, as far as its opponent can count it: one a move, and one
                     // more for each Pokémon it is aimed at that has said it has Pressure.
                     let data = &MOVES[used as usize];
+                    // (Expanding Force from a grounded user under Psychic Terrain goes for both of this side, as
+                    // its own side's does above: each with Pressure is paid.)
+                    let expanding = used == mv::EXPANDINGFORCE
+                        && self.field.terrain == Terrain::Psychicterrain
+                        && self.rebuild().is_ok_and(|mut b| {
+                            let user = b.active(side, pos);
+                            b.is_grounded(user, false)
+                        });
                     let wide = data.flags & F_MUSTPRESSURE != 0
+                        || expanding
                         || matches!(data.target, Target::All | Target::AllAdjacent | Target::AllAdjacentFoes);
                     let mut aimed: Vec<(usize, usize)> = Vec::new();
                     if wide {
