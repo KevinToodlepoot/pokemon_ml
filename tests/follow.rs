@@ -560,6 +560,28 @@ fn the_other_sides_expanding_force_pays_pressure_through_its_spread() {
     assert_eq!((text.lines().count(), tally.wrong), (1, 0), "{:#?}", tally.by_feature);
 }
 
+/// A Pokémon that faints in the course of its own move keeps that move's result (vgc-bot PLAN §5j W2.3): Showdown
+/// sets it as the move ends, after the faint has cleared the rest, and nothing clears it on the bench. Brought back
+/// by Revival Blessing it comes in with it, and the next turn has it as last turn's (the Metronome item reads that).
+/// A recorded game (its first nine steps): a Glalie falls to its own Explosion on turn 2, a Pawmot brings it back on
+/// turn 3 and it comes in as the turn ends; the export's results are the game's at every decision.
+#[test]
+fn one_brought_back_keeps_the_result_of_the_move_it_fell_to() {
+    let text = include_str!("fixtures/revived_move_result.jsonl");
+    let mut tally = FollowTally::default();
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        match check_follow(&case, &mut tally) {
+            Outcome::Pass(_) => {}
+            Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+            Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+        }
+        let wrong = root_state_differs(&case, &["move_last_turn", "move_this_turn"]);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+    assert_eq!((text.lines().count(), tally.wrong), (1, 0), "{:#?}", tally.by_feature);
+}
+
 /// What the state gate's first run on skilled play (S3b.6, D74) found the follower's export getting
 /// wrong, each in a battle scripted to reach it (Dex sets, `gen_cases.js --script`; the battle's
 /// name says which): at every decision the export observes as its follower does, counts as the

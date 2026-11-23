@@ -321,6 +321,9 @@ struct Spot {
     damaged_by: Vec<(usize, usize, u16, u32)>,
     result_now: Option<Option<bool>>,
     result_last: Option<Option<bool>>,
+    /// It fainted in the course of its own move (Explosion, a recoil, a Rocky Helmet): its team index. Showdown
+    /// files that move's result after the faint has cleared its record ([`Follower::ko_result`]).
+    fell_moving: Option<usize>,
     /// This turn's result and last turn's are untold (D89; [`Untold::MoveResult`]): a status move of the
     /// other side's whose line named no target failed with no word of why, with a Substitute up on some of
     /// the Pokémon it may have been aimed at (taken by one, the move worked).
@@ -420,6 +423,7 @@ impl Spot {
             result_now: None,
             result_doubt: [false; 2],
             result_last: None,
+            fell_moving: None,
             aimed: 0,
             lowered: false,
             raised: false,
@@ -993,6 +997,11 @@ pub struct Follower {
     /// and place, the damage, the hits). Showdown records it after the faint has cleared the Pokémon's
     /// record, so one brought back by Revival Blessing comes in with it.
     ko_hit: [[Option<(usize, usize, usize, u16, u8)>; MAX_TEAM]; 2],
+    /// By side and team index: the result of its own move that it fainted in the course of, as it stood when
+    /// another Pokémon took its place. Showdown sets `moveThisTurnResult` as the move ends, after the faint has
+    /// cleared the Pokémon's record, and nothing clears it on the bench: one brought back by Revival Blessing
+    /// comes in with it as this turn's result (the Metronome item reads it as last turn's from the next).
+    ko_result: [[Option<Option<bool>>; MAX_TEAM]; 2],
     /// Faints on each side so far (Showdown's `totalFainted`, which a revival does not take back):
     /// Last Respects and Supreme Overlord count them.
     faints: [u8; 2],
@@ -1331,6 +1340,7 @@ impl Follower {
             tricked: None,
             move_hits: [[0; ACTIVE]; 2],
             ko_hit: [[None; MAX_TEAM]; 2],
+            ko_result: [[None; MAX_TEAM]; 2],
             faints: [0; 2],
             stockpiled: None,
             spread_self: false,
@@ -2498,6 +2508,12 @@ impl Follower {
         if let Some(ko) = self.ko_hit[opp].get_mut(was).and_then(Option::take) {
             self.ko_hit[opp][now] = Some(ko);
         }
+        if let Some(kept) = self.ko_result[opp].get_mut(was).and_then(Option::take) {
+            self.ko_result[opp][now] = Some(kept);
+        }
+        if self.spots[opp][pos].fell_moving == Some(was) {
+            self.spots[opp][pos].fell_moving = Some(now);
+        }
         // Its Choice lock, judged again with the item of who it really is.
         if self.spots[opp][pos].lock.is_none()
             && let Some((first, seq)) = self.spots[opp][pos].first
@@ -2743,6 +2759,10 @@ impl Follower {
         {
             self.encore_doubt[old] = false;
         }
+        // One that fell in the course of its own move leaves with that move's result (`ko_result`).
+        if let Some(idx) = self.spots[side][pos].fell_moving.filter(|&idx| idx < MAX_TEAM) {
+            self.ko_result[side][idx] = self.spots[side][pos].result_now;
+        }
         let mut fresh = Spot::new(self.stays);
         let team = &self.reader.sides[side];
         let brought = if team.size == 0 { 4 } else { team.size };
@@ -2833,6 +2853,10 @@ impl Follower {
             if attacker != side {
                 spot.damaged_by.push((by, slot, damage, 0));
             }
+        }
+        // And with the result of its own move that it fell in the course of.
+        if let Some(kept) = self.ko_result[side].get_mut(idx).and_then(Option::take).filter(|_| !passed) {
+            self.spots[side][pos].result_now = Some(kept);
         }
         self.items.push((self.begun.len(), Event::Switch { r: self.mon_ref(side, pos) }));
         // Its item starts as it comes in (the Metronome item's condition; after anything Baton Pass handed on).
@@ -3066,6 +3090,11 @@ impl Follower {
                 if let Some(ko) = self.ko_hit[s].get_mut(idx) {
                     *ko = None;
                 }
+                // (And its own move's result with them.)
+                if let Some(kept) = self.ko_result[s].get_mut(idx) {
+                    *kept = None;
+                }
+                self.spots[s][p].fell_moving = None;
             }
         }
         let Some(pos) = id.pos else {
@@ -3122,6 +3151,9 @@ impl Follower {
                     }
                 }
                 self.faints[side] = self.faints[side].saturating_add(1);
+                if self.under_way.is_some_and(|u| u.0 == (side, pos)) {
+                    self.spots[side][pos].fell_moving = Some(self.mon_ref(side, pos).idx as usize);
+                }
                 let left = self.spots[side][pos].stay;
                 for spot in self.spots.iter_mut().flatten() {
                     spot.vols.retain(|v| v.source == 0 || v.source != left);
