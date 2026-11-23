@@ -2,10 +2,10 @@
 //! what the value function is handed about the leaf.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::ThreadPool;
-use rayon::prelude::*;
 
 use crate::battle::Error;
 use crate::env::{Baseline, Game, OBS_M};
@@ -269,7 +269,8 @@ fn play(
     sc: &mut Scratch,
     f: &mut [f32],
     i: &mut [i16],
-) -> Result<([f32; SUMMARY], Option<Game>), Error> {
+    kept: &mut Vec<Game>,
+) -> Result<[f32; SUMMARY], Error> {
     let w = words(root_seed, k);
     let mut g = root.clone();
     g.reseed(w);
@@ -305,8 +306,28 @@ fn play(
     if !f.is_empty() {
         g.observe(view, f, i, &mut sc.mask);
     }
-    Ok((s, opts.keep_states.then_some(g)))
+    if opts.keep_states {
+        kept.push(g);
+    }
+    Ok(s)
 }
+
+/// A run of neighbouring cells and where their leaves go.
+struct Chunk<'a> {
+    at: usize,
+    cells: &'a [CellId],
+    summary: &'a mut [f32],
+    f: &'a mut [f32],
+    i: &'a mut [i16],
+}
+
+/// Cells a chunk: small enough that the threads share a call evenly, large enough that taking one costs nothing.
+fn chunk_len(cells: usize, threads: usize) -> usize {
+    (cells / (4 * threads.max(1))).clamp(4, 64)
+}
+
+/// Cells a thread should have to itself before it is worth waking.
+const CELLS_A_HELPER: usize = 16;
 
 /// Plays every cell of `cells` from `root` and returns their leaves in the
 /// same order. `rows` are the viewer's joint actions and `cols` the other
@@ -371,40 +392,87 @@ pub fn simulate_planned(
         summary: vec![0.0; n * SUMMARY],
         states: Vec::new(),
     };
-    let states: Result<Vec<Option<Game>>, Error> = pool.install(|| {
-        if opts.observe {
-            let (summary, f, i) = (&mut out.summary, &mut out.f, &mut out.i);
-            (cells.par_iter(), summary.par_chunks_mut(SUMMARY), f.par_chunks_mut(OBS_F), i.par_chunks_mut(OBS_I))
-                .into_par_iter()
-                .map_init(scratch, |sc, (c, s, f, i)| {
-                    let (mine, theirs) = (rows[c.row as usize], cols[c.col as usize]);
-                    let (summary, g) = play(root, view, mine, theirs, plans_of(c), c.seed, seed, opts, sc, f, i)?;
-                    s.copy_from_slice(&summary);
-                    Ok(g)
-                })
-                .collect()
-        } else {
-            (cells.par_iter(), out.summary.par_chunks_mut(SUMMARY))
-                .into_par_iter()
-                .map_init(scratch, |sc, (c, s)| {
-                    let (mine, theirs) = (rows[c.row as usize], cols[c.col as usize]);
-                    let (summary, g) =
-                        play(root, view, mine, theirs, plans_of(c), c.seed, seed, opts, sc, &mut [], &mut [])?;
-                    s.copy_from_slice(&summary);
-                    Ok(g)
-                })
-                .collect()
+    // The cells in chunks, each with its own part of the output: whichever thread plays a chunk, a leaf
+    // lands where its cell stands in the list. The calling thread plays chunks itself and the pool's
+    // threads join it as they wake, so a small call after a pause (the driver was valuing the last
+    // leaves) never waits on a sleeping pool; nothing is allocated per cell unless the states are kept.
+    let (observe, keep) = (opts.observe, opts.keep_states);
+    let size = chunk_len(n, pool.current_num_threads());
+    let mut work: Vec<Chunk> = Vec::with_capacity(n.div_ceil(size));
+    let (mut summary, mut f, mut i) = (&mut out.summary[..], &mut out.f[..], &mut out.i[..]);
+    for (at, cs) in cells.chunks(size).enumerate() {
+        let (s0, s1) = std::mem::take(&mut summary).split_at_mut(cs.len() * SUMMARY);
+        let (f0, f1) = std::mem::take(&mut f).split_at_mut(if observe { cs.len() * OBS_F } else { 0 });
+        let (i0, i1) = std::mem::take(&mut i).split_at_mut(if observe { cs.len() * OBS_I } else { 0 });
+        (summary, f, i) = (s1, f1, i1);
+        work.push(Chunk { at, cells: cs, summary: s0, f: f0, i: i0 });
+    }
+    let chunks = work.len();
+    work.reverse();
+    let queue = Mutex::new(work);
+    let kept: Mutex<Vec<(usize, Vec<Game>)>> = Mutex::new(Vec::new());
+    let failed: Mutex<Option<(usize, Error)>> = Mutex::new(None);
+    let stop = AtomicBool::new(false);
+    let worker = || {
+        let mut sc = scratch();
+        while !stop.load(Ordering::Relaxed) {
+            let Some(ch) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop() else {
+                break;
+            };
+            let mut states = Vec::with_capacity(if keep { ch.cells.len() } else { 0 });
+            for (j, c) in ch.cells.iter().enumerate() {
+                let (mine, theirs) = (rows[c.row as usize], cols[c.col as usize]);
+                let (f, i) = if observe {
+                    (&mut ch.f[j * OBS_F..(j + 1) * OBS_F], &mut ch.i[j * OBS_I..(j + 1) * OBS_I])
+                } else {
+                    (&mut [][..], &mut [][..])
+                };
+                match play(root, view, mine, theirs, plans_of(c), c.seed, seed, opts, &mut sc, f, i, &mut states) {
+                    Ok(s) => ch.summary[j * SUMMARY..(j + 1) * SUMMARY].copy_from_slice(&s),
+                    Err(e) => {
+                        // The first cell in the list's order that fails is the error: chunks are taken in
+                        // order and one already taken is played out, so the earliest failure is always seen.
+                        let mut failed = failed.lock().unwrap_or_else(|e| e.into_inner());
+                        if failed.as_ref().is_none_or(|(at, _)| ch.at < *at) {
+                            *failed = Some((ch.at, e));
+                        }
+                        stop.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                }
+            }
+            if keep {
+                kept.lock().unwrap_or_else(|e| e.into_inner()).push((ch.at, states));
+            }
         }
-    });
-    if opts.keep_states {
-        out.states = states?.into_iter().map(|g| g.expect("a kept state")).collect();
+    };
+    let helpers = (pool.current_num_threads().saturating_sub(1)).min(n / CELLS_A_HELPER).min(chunks.saturating_sub(1));
+    if helpers == 0 {
+        worker();
     } else {
-        states?;
+        pool.in_place_scope(|s| {
+            for _ in 0..helpers {
+                s.spawn(|_| worker());
+            }
+            worker();
+        });
+    }
+    if let Some((_, e)) = failed.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        return Err(e);
+    }
+    if keep {
+        let mut kept = kept.into_inner().unwrap_or_else(|e| e.into_inner());
+        kept.sort_by_key(|(at, _)| *at);
+        out.states = Vec::with_capacity(n);
+        for (_, mut states) in kept {
+            out.states.append(&mut states);
+        }
     }
     Ok(out)
 }
 
-/// A thread pool of `threads` workers (0: one per core), made once and shared.
+/// A thread pool of `threads` workers (0: one per core), made once and shared. The thread that calls
+/// [`simulate`] plays cells itself, beside `threads - 1` of the pool's: `threads` at work in all.
 pub fn pool(threads: usize) -> Arc<ThreadPool> {
     static POOLS: OnceLock<Mutex<HashMap<usize, Arc<ThreadPool>>>> = OnceLock::new();
     let pools = POOLS.get_or_init(|| Mutex::new(HashMap::new()));

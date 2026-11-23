@@ -98,6 +98,38 @@ fn a_cell_is_the_same_on_one_and_eight_threads_and_under_its_seed() {
 }
 
 #[test]
+fn leaves_and_kept_states_come_back_in_the_cells_order_on_any_number_of_threads() {
+    use vgc_engine::env::OBS_M;
+    use vgc_engine::obs::{OBS_F, OBS_I};
+    let mut rng = Rng::from_words([4, 3, 2, 1]);
+    let keep = SimOpts { observe: true, keep_states: true, follow: Follow::EndOfTurn, mode: Mode::Move };
+    let (mut f, mut i, mut mask) = (vec![0.0; OBS_F], vec![0; OBS_I], vec![0; OBS_M]);
+    for g in roots(3, &[1, 4], 300, &mut rng) {
+        let (rows, cols) = (some(&g, 0, 7, &mut rng), some(&g, 1, 7, &mut rng));
+        let all = all_cells(rows.len(), cols.len(), 6);
+        // From a call too small to share out to one that every thread takes several parts of.
+        for n in [1, 3, 17, 70, all.len()] {
+            let cells = &all[..n.min(all.len())];
+            let one = simulate(&g, 0, &rows, &cols, cells, 9, &keep, &pool(1)).unwrap();
+            assert_eq!(one.states.len(), cells.len());
+            // A kept state is its own cell's: what it shows is the leaf's observation.
+            for (k, s) in one.states.iter().enumerate() {
+                s.observe(0, &mut f, &mut i, &mut mask);
+                assert!(f == one.f[k * OBS_F..(k + 1) * OBS_F] && i == one.i[k * OBS_I..(k + 1) * OBS_I], "state {k}");
+            }
+            for threads in [2, 3, 8] {
+                let many = simulate(&g, 0, &rows, &cols, cells, 9, &keep, &pool(threads)).unwrap();
+                assert!(many.summary == one.summary && many.f == one.f && many.i == one.i, "{n} on {threads}");
+                assert_eq!(many.states.len(), cells.len());
+                for (k, (a, b)) in one.states.iter().zip(&many.states).enumerate() {
+                    assert!(a.to_state().to_json() == b.to_state().to_json(), "state {k} of {n} on {threads} threads");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn the_hand_value_is_antisymmetric_in_the_view() {
     let mut rng = Rng::from_words([4, 3, 2, 1]);
     let mut ended = 0;
