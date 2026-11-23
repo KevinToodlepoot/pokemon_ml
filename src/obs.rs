@@ -726,6 +726,23 @@ pub fn observe_battle(
     f: &mut [f32],
     i: &mut [i16],
 ) {
+    observe_battle_with(b, timers, speeds, counts, stats, view, false, f, i)
+}
+
+/// [`observe_battle`], with the "moves first" flags from the two sides' real Speeds where `true_speeds`
+/// ([`Speeds::first_true`]): for a caller that knows the other side's spreads. Everything else is the same.
+#[allow(clippy::too_many_arguments)]
+pub fn observe_battle_with(
+    b: &Battle,
+    timers: &Timers,
+    speeds: &Speeds,
+    counts: &Counts,
+    stats: &[[u16; 6]; ROSTER],
+    view: usize,
+    true_speeds: bool,
+    f: &mut [f32],
+    i: &mut [i16],
+) {
     let mut p = parts(f, i);
     let opp = 1 - view;
     let (us, them) = (&b.sides[view], &b.sides[opp]);
@@ -932,7 +949,7 @@ pub fn observe_battle(
     let mut firsts = [[None; ACTIVE]; ACTIVE];
     for (mine, row) in firsts.iter_mut().enumerate() {
         for (theirs, first) in row.iter_mut().enumerate() {
-            *first = speeds.first(b, view, mine, theirs);
+            *first = if true_speeds { speeds.first_true(b, view, mine, theirs) } else { speeds.first(b, view, mine, theirs) };
         }
     }
     for (slot, (side, pos)) in [(view, 0), (view, 1), (opp, 0), (opp, 1)].into_iter().enumerate() {

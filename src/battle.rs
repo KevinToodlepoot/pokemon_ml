@@ -1716,6 +1716,7 @@ impl Battle {
                 && self.run_event(Ev::BeforeFaint, Some(r), fd.source, fd.effect, Res::Undef).truthy()
             {
                 // The `faint` line.
+                self.note_faint(r, fd.source, fd.effect);
                 self.shown_leave(r, true);
                 let side = &mut self.sides[r.side as usize];
                 if side.pokemon_left > 0 {

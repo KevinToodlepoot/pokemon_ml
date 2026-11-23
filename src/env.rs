@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use crate::battle::{Error, PokemonSet, calc_stats, struggle_id};
 use crate::data::*;
 use crate::format::ShowdownSet;
-use crate::obs::{OBS_F, OBS_I, Phase, ROSTER, TimerCounts, Timers, observe_battle, observe_preview};
+use crate::obs::{OBS_F, OBS_I, Phase, ROSTER, TimerCounts, Timers, observe_battle, observe_battle_with, observe_preview};
 use crate::position::BattleState;
 use crate::rng::Rng;
 use crate::speed::{self, Speeds};
@@ -450,6 +450,48 @@ impl GameState {
     }
 }
 
+/// One faint of a game, in the order they happened ([`Game::faints`]): the turn, the Pokémon (its side and its
+/// entry of the registered six), what Showdown's faint queue names as the source (`by`; `None` for a faint with
+/// no source, as from the weather) and the effect, as `move:<id>`, `ability:<id>`, `item:<id>` or a condition's
+/// name (`weather:sandstorm`, `status:psn`, `recoil`, …). Bookkeeping kept beside the battle: nothing in an
+/// observation, the dice or a state reads it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Faint {
+    pub turn: u16,
+    pub side: u8,
+    pub entry: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<FaintSource>,
+    pub effect: String,
+}
+
+/// The Pokémon a faint's source is: its side and its entry of the registered six.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FaintSource {
+    pub side: u8,
+    pub entry: u8,
+}
+
+/// A faint as the engine noted it ([`speed::Event::Fainted`]), kept as it came: a search's copies of a game
+/// carry these few bytes and no text.
+#[derive(Clone, Copy, Debug)]
+struct FaintNote {
+    turn: u16,
+    target: MonRef,
+    source: Option<MonRef>,
+    effect: Eff,
+    move_id: u16,
+}
+
+/// The faints the engine noted in the last step, appended to a game's list.
+fn note_faints(faints: &mut Vec<FaintNote>, events: &[speed::Event]) {
+    for event in events {
+        if let speed::Event::Fainted { target, source, effect, move_id, turn } = *event {
+            faints.push(FaintNote { turn, target, source, effect, move_id });
+        }
+    }
+}
+
 /// One game: Team Preview, then the battle.
 #[derive(Clone, Debug)]
 pub struct Game {
@@ -467,6 +509,9 @@ pub struct Game {
     hp_seen: Vec<HpSeen>,
     /// What the engine noted during the last step, for `speeds` (kept to reuse the space).
     events: Vec<speed::Event>,
+    /// Every faint of the game so far, as the engine noted them ([`Game::faints`]). A game loaded from a state
+    /// starts with none: the list is of what this `Game` played.
+    faints: Vec<FaintNote>,
 }
 
 impl Game {
@@ -497,6 +542,7 @@ impl Game {
             untold: Vec::new(),
             hp_seen: Vec::new(),
             events: Vec::new(),
+            faints: Vec::new(),
         })
     }
 
@@ -569,6 +615,31 @@ impl Game {
 
     pub fn counts(&self) -> &Counts {
         &self.counts
+    }
+
+    /// Every faint of the game so far, in order ([`Faint`]): who fainted, by whom and by what.
+    pub fn faints(&self) -> Vec<Faint> {
+        let Some(b) = self.battle.as_ref() else { return Vec::new() };
+        let entry = |r: MonRef| -> u8 {
+            let s = &b.sides[r.side as usize];
+            s.roster[..s.n_roster as usize].iter().position(|l| l.brought == r.idx).map_or(u8::MAX, |j| j as u8)
+        };
+        self.faints
+            .iter()
+            .map(|n| Faint {
+                turn: n.turn,
+                side: n.target.side,
+                entry: entry(n.target),
+                by: n.source.map(|r| FaintSource { side: r.side, entry: entry(r) }),
+                effect: match n.effect {
+                    Eff::Move(_) if n.move_id != NO_MOVE => format!("move:{}", MOVES[n.move_id as usize].id),
+                    Eff::Ability(a) => format!("ability:{}", ABILITIES[a as usize].id),
+                    Eff::Item(i) => format!("item:{}", ITEMS[i as usize].id),
+                    Eff::None => String::new(),
+                    other => format!("{other:?}").to_lowercase().replace('(', ":").replace(')', ""),
+                },
+            })
+            .collect()
     }
 
     pub fn phase(&self) -> Phase {
@@ -670,6 +741,7 @@ impl Game {
         let b = self.battle.as_mut().ok_or_else(|| Error::BadChoice("the battle has not started".into()))?;
         let before = *b;
         speed::record(&mut self.events, || b.choose(choices))?;
+        note_faints(&mut self.faints, &self.events);
         self.timers.update(b);
         self.speeds.digest(&self.events, b);
         self.counts.update(&before, b, &self.events);
@@ -728,6 +800,20 @@ impl Game {
         match &self.battle {
             None => observe_preview(self.rosters(), &self.speeds, &self.stats[view], self.open, view, f, i),
             Some(b) => observe_battle(b, &self.timers, &self.speeds, &self.counts, &self.stats[view], view, f, i),
+        }
+        let n = self.masks(view, mask);
+        let info = &mut i[OBS_I - crate::obs::INFO..];
+        info[1] = n.min(i16::MAX as usize) as i16;
+        info[3] = (n > 1) as i16;
+    }
+
+    /// [`Game::observe`] with the "moves first" flags filled from the two sides' real Speeds
+    /// ([`Speeds::first_true`]): for a caller that holds both teams and so knows the other side's spreads. A
+    /// player on Showdown is not told them; nothing that plays or trains from one side's information uses this.
+    pub fn observe_true_speeds(&self, view: usize, f: &mut [f32], i: &mut [i16], mask: &mut [u8]) {
+        match &self.battle {
+            None => observe_preview(self.rosters(), &self.speeds, &self.stats[view], self.open, view, f, i),
+            Some(b) => observe_battle_with(b, &self.timers, &self.speeds, &self.counts, &self.stats[view], view, true, f, i),
         }
         let n = self.masks(view, mask);
         let info = &mut i[OBS_I - crate::obs::INFO..];

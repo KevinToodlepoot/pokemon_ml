@@ -558,16 +558,23 @@ impl PyGame {
 
     /// Writes `view`'s observation (`f`: OBS_F float32, `i`: OBS_I int16,
     /// `mask`: OBS_M uint8) and returns how many joint actions are legal.
+    #[pyo3(signature = (view, f, i, mask, speeds=None))]
     fn observe(
         &self,
         view: usize,
         mut f: PyReadwriteArray1<'_, f32>,
         mut i: PyReadwriteArray1<'_, i16>,
         mut mask: PyReadwriteArray1<'_, u8>,
+        speeds: Option<&str>,
     ) -> PyResult<usize> {
         let view = side_index(view)?;
         let (f, i, mask) = (flat(&mut f, OBS_F, "f")?, flat(&mut i, OBS_I, "i")?, flat(&mut mask, OBS_M, "mask")?);
-        self.inner.observe(view, f, i, mask);
+        match speeds {
+            None | Some("seen") => self.inner.observe(view, f, i, mask),
+            // The "moves first" flags from the two sides' real Speeds: for a caller that knows the other side's spreads.
+            Some("true") => self.inner.observe_true_speeds(view, f, i, mask),
+            Some(other) => return Err(PyValueError::new_err(format!("speeds is \"seen\" (the default) or \"true\"; got {other:?}"))),
+        }
         Ok(i[OBS_I - INFO + 1] as usize)
     }
 
@@ -621,6 +628,14 @@ impl PyGame {
     /// The public counts of the hidden-length effects (`Counts`), as JSON.
     fn counts(&self) -> PyResult<String> {
         serde_json::to_string(self.inner.counts()).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Every faint of the game so far, in order, as JSON: `[{"turn", "side", "entry", "by": {"side", "entry"},
+    /// "effect"}]`. `entry` is the Pokémon's place in its side's registered six; `by` is absent for a faint with
+    /// no source; `effect` is `move:<id>`, `ability:<id>`, `item:<id>` or a condition's name. A game loaded from
+    /// a state lists only what it played since.
+    fn faints(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.faints()).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 }
 

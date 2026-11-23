@@ -178,6 +178,88 @@ fn actions_and_choices_agree_and_the_masks_say_what_is_legal() {
     assert!(decisions > 500 && switches > 500 && megas > 100 && forced > 20, "{decisions} {switches} {megas} {forced}");
 }
 
+#[test]
+fn every_faint_is_listed_once_with_its_turn_and_a_copy_keeps_the_list() {
+    let mut rng = Rng::from_words([2, 7, 1, 8]);
+    let (mut faints, mut sourced, mut by_move) = (0, 0, 0);
+    for seed in 0..60 {
+        let mut game = Game::new(teams(300 + seed), true).unwrap();
+        assert!(game.faints().is_empty());
+        play(&mut game, &mut rng, |_| {});
+        let list = game.faints();
+        let b = game.battle().unwrap();
+        // The list is in order, and names exactly the Pokémon that have fainted (none came back: no Revival Blessing here).
+        assert!(list.windows(2).all(|w| w[0].turn <= w[1].turn));
+        for side in 0..2 {
+            let s = &b.sides[side];
+            let down = s.team[..s.n as usize].iter().filter(|m| m.fainted).count();
+            let mut entries: Vec<u8> = list.iter().filter(|f| f.side as usize == side).map(|f| f.entry).collect();
+            assert_eq!(entries.len(), down, "seed {seed} side {side}");
+            entries.sort_unstable();
+            entries.dedup();
+            assert_eq!(entries.len(), down, "seed {seed} side {side}: a Pokémon listed twice");
+        }
+        for f in &list {
+            assert!(f.turn >= 1 && f.turn <= b.turn && (f.entry as usize) < 6);
+            if let Some(by) = f.by {
+                assert!((by.entry as usize) < 6);
+                sourced += 1;
+            }
+            by_move += f.effect.starts_with("move:") as usize;
+        }
+        faints += list.len();
+        assert_eq!(game.clone().faints(), list);
+        // A game loaded from a state lists what it plays from there on.
+        assert!(Game::from_state(&game.to_state()).unwrap().faints().is_empty());
+    }
+    assert!(faints > 150 && sourced > 100 && by_move > 100, "{faints} {sourced} {by_move}");
+}
+
+#[test]
+fn the_true_speed_flags_agree_with_what_the_evidence_settles_and_change_nothing_else() {
+    use vgc_engine::speed::First;
+    let mut rng = Rng::from_words([3, 5, 8, 13]);
+    let (mut pairs, mut settled, mut unknown_made_known, mut ties) = (0, 0, 0, 0);
+    for seed in 0..40 {
+        let mut game = Game::new(teams(500 + seed), seed % 2 == 0).unwrap();
+        play(&mut game, &mut rng, |game| {
+            let Some(b) = game.battle() else { return };
+            let speeds = game.speeds();
+            for view in 0..2 {
+                for mine in 0..2 {
+                    for theirs in 0..2 {
+                        let (seen, real) = (speeds.first(b, view, mine, theirs), speeds.first_true(b, view, mine, theirs));
+                        // The same positions have an answer; what the evidence settles is what is true.
+                        assert_eq!(seen.is_none(), real.is_none());
+                        let (Some(seen), Some(real)) = (seen, real) else { continue };
+                        pairs += 1;
+                        if seen != First::Unknown && !b.mon(b.active(view, mine)).transformed {
+                            assert_eq!(seen, real, "seed {seed} turn {} view {view} {mine} against {theirs}", b.turn);
+                            settled += 1;
+                        } else if real != First::Unknown {
+                            unknown_made_known += 1;
+                        }
+                        ties += (real == First::Unknown) as usize;
+                        // The two sides read the same order.
+                        let other = speeds.first_true(b, 1 - view, theirs, mine).unwrap();
+                        assert_eq!(real == First::Mine, other == First::Theirs);
+                        assert_eq!(real == First::Unknown, other == First::Unknown);
+                    }
+                }
+                // The observation differs only in floats (the flags), and only where a flag changed.
+                let (mut f0, mut i0, mut m0) = (vec![0f32; OBS_F], vec![0i16; OBS_I], vec![0u8; OBS_M]);
+                let (mut f1, mut i1, mut m1) = (f0.clone(), i0.clone(), m0.clone());
+                game.observe(view, &mut f0, &mut i0, &mut m0);
+                game.observe_true_speeds(view, &mut f1, &mut i1, &mut m1);
+                assert!(i0 == i1 && m0 == m1);
+                let changed = f0.iter().zip(&f1).filter(|(a, b)| a != b).count();
+                assert!(changed % 2 == 0 && changed <= 16, "{changed} floats differ");
+            }
+        });
+    }
+    assert!(pairs > 2000 && settled > 300 && unknown_made_known > 300 && ties < pairs / 4, "{pairs} {settled} {unknown_made_known} {ties}");
+}
+
 /// The id a name has in an observation.
 fn named<T>(name: &str, find: impl Fn(&str) -> Option<T>) -> i16
 where

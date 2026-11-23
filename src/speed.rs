@@ -322,6 +322,10 @@ pub(crate) struct Queued {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Event {
+    /// A Pokémon fainted: who, what Showdown's faint queue names as the source (if anything) and the effect
+    /// (`move_id`: the move, where the effect is one). Bookkeeping for [`Game::faints`](crate::env::Game::faints):
+    /// nothing reads it back into the battle.
+    Fainted { target: MonRef, source: Option<MonRef>, effect: Eff, move_id: u16, turn: u16 },
     /// A queued move has reached the head of the queue and starts.
     Start {
         me: Queued,
@@ -434,6 +438,17 @@ fn queued(a: &Action) -> Queued {
 }
 
 impl Battle {
+    /// A Pokémon fainted ([`Event::Fainted`]).
+    pub(crate) fn note_faint(&self, target: MonRef, source: Option<MonRef>, effect: Eff) {
+        if on() {
+            let move_id = match effect {
+                Eff::Move(slot) => self.am[slot as usize].id,
+                _ => NO_MOVE,
+            };
+            LOG.with(|log| log.borrow_mut().push(Event::Fainted { target, source, effect, move_id, turn: self.turn }));
+        }
+    }
+
     /// A counted effect began ([`Event::Began`]).
     pub(crate) fn note_count_began(&self, uid: u16, length: u8, rest: bool) {
         if on() {
@@ -856,6 +871,29 @@ impl Speeds {
         self.own[side][pos]
     }
 
+    /// [`Speeds::first`] for a viewer that knows the other side's spreads: who moves first by the Speeds the
+    /// queue would sort the two by, as things stand. A tie is `Unknown` (the queue draws). `None` where
+    /// [`Speeds::first`] gives `None`. For a caller that holds both teams ([`Game::observe_true_speeds`]
+    /// (crate::env::Game::observe_true_speeds)): the other side's Speed is not something a player is told.
+    pub fn first_true(&self, b: &Battle, view: usize, mine: usize, theirs: usize) -> Option<First> {
+        let opp = 1 - view;
+        if mine >= b.sides[view].n as usize || theirs >= b.sides[opp].n as usize {
+            return None;
+        }
+        let me = b.mon(b.active(view, mine));
+        if !me.is_active || me.fainted || !seen(b, b.active(opp, theirs)).present {
+            return None;
+        }
+        let (own, other) = (self.own[view][mine], self.own[opp][theirs]);
+        Some(if other > own {
+            First::Theirs
+        } else if other < own {
+            First::Mine
+        } else {
+            First::Unknown
+        })
+    }
+
     /// Brings the record up to a battle that nothing new has been seen in: a
     /// position taken up again. Each side's own Speeds are read off the battle
     /// as it stands, and what the record of items says is applied once more.
@@ -919,7 +957,7 @@ impl Speeds {
                         }
                     }
                 }
-                Event::Began { .. } | Event::Passed { .. } => {}
+                Event::Began { .. } | Event::Passed { .. } | Event::Fainted { .. } => {}
                 Event::Start { .. } => {
                     // This one moved after each of those that started before it.
                     for i in 0..j {
