@@ -3777,6 +3777,13 @@ impl Follower {
                     self.roused = Some((side, pos, status));
                 }
             }
+            // Supreme Overlord says what it counted as it started (`fallenN`, a silent line): its side's faints then.
+            // The tally at its `switch` line is short when one fell between that line and the ability's start (a
+            // partner that came in with it and fell to Stealth Rock on the way).
+            "-start" if arg(3).strip_prefix("fallen").is_some_and(|n| n.parse::<u8>().is_ok()) => {
+                self.spots[side][pos].fallen = arg(3)["fallen".len()..].parse().unwrap_or(0);
+                self.started_on(side, pos, arg(3), parts, of)
+            }
             "-start" => self.started_on(side, pos, arg(3), parts, of),
             "-end" => {
                 let at = self.begun.len();

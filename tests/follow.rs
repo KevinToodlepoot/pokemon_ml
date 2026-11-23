@@ -582,6 +582,27 @@ fn one_brought_back_keeps_the_result_of_the_move_it_fell_to() {
     assert_eq!((text.lines().count(), tally.wrong), (1, 0), "{:#?}", tally.by_feature);
 }
 
+/// Supreme Overlord's count is what the ability says it counted as it started (`|-start|…|fallenN|[silent]`; vgc-bot
+/// PLAN §5j W2.3), not the faints tallied at its `switch` line: a Charizard that came in beside a Kingambit and fell
+/// to Stealth Rock on the way is one of the fallen. A recorded game (its first eleven steps): the export's count is
+/// the game's at every decision.
+#[test]
+fn supreme_overlord_counts_what_it_says_it_counted() {
+    let text = include_str!("fixtures/supreme_overlord_count.jsonl");
+    let mut tally = FollowTally::default();
+    for line in text.lines() {
+        let case: FollowCase = serde_json::from_str(line).unwrap();
+        match check_follow(&case, &mut tally) {
+            Outcome::Pass(_) => {}
+            Outcome::Unsupported(why) => panic!("battle {} cannot be checked: {why}", case.id),
+            Outcome::Fail(why) => panic!("battle {} was not followed: {}", case.id, why.join("; ")),
+        }
+        let wrong = root_state_differs(&case, &["ability_extra.a", "ability_extra.b", "ability_extra.item"]);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+    assert_eq!((text.lines().count(), tally.wrong), (1, 0), "{:#?}", tally.by_feature);
+}
+
 /// What the state gate's first run on skilled play (S3b.6, D74) found the follower's export getting
 /// wrong, each in a battle scripted to reach it (Dex sets, `gen_cases.js --script`; the battle's
 /// name says which): at every decision the export observes as its follower does, counts as the
