@@ -16,6 +16,8 @@
 // clippy would fold branches or loops together.
 #![allow(clippy::needless_range_loop, clippy::collapsible_if, clippy::collapsible_match, clippy::if_same_then_else)]
 
+use std::sync::OnceLock;
+
 use crate::data::*;
 use crate::env::Counted;
 use crate::state::*;
@@ -163,8 +165,17 @@ pub(crate) fn calc_stats(species: u16, nature: (u8, u8), stat_points: [u8; 6]) -
     out
 }
 
+/// [`Battle::has_vol_named`] for a fixed id, with the name looked up once: for the checks a step makes
+/// several times over (whether an item is ignored, whether a Pokémon is grounded).
+macro_rules! has_vol_named {
+    ($battle:expr, $r:expr, $id:literal) => {{
+        static KIND: OnceLock<Option<VolKind>> = OnceLock::new();
+        KIND.get_or_init(|| VolKind::named($id)).is_some_and(|k| $battle.vols($r).has(k))
+    }};
+}
+
 pub(crate) fn struggle_id() -> u16 {
-    move_id("struggle").expect("struggle is always in the move table")
+    mv::STRUGGLE
 }
 
 /// `Battle#comparePriority` for queued actions: order low to high, priority
@@ -585,7 +596,7 @@ impl Battle {
         if self.field.pseudo.has(Pseudo::Gravity) {
             return true;
         }
-        if self.has_vol_named(r, "ingrain") || self.has_vol_named(r, "smackdown") {
+        if has_vol_named!(self, r, "ingrain") || has_vol_named!(self, r, "smackdown") {
             return true;
         }
         let item = if self.ignoring_item(r) { it::NONE } else { self.mon(r).item };
@@ -595,7 +606,7 @@ impl Battle {
         // (A Fire/Flying type that used Burn Up and then Roost is the exception to this rule.)
         if !negate_immunity
             && self.has_type(r, Type::Flying)
-            && !(self.has_type(r, Type::Typeless) && self.has_vol_named(r, "roost"))
+            && !(self.has_type(r, Type::Typeless) && has_vol_named!(self, r, "roost"))
         {
             return false;
         }
@@ -604,7 +615,7 @@ impl Battle {
         {
             return false;
         }
-        if self.has_vol_named(r, "magnetrise") || self.has_vol_named(r, "telekinesis") {
+        if has_vol_named!(self, r, "magnetrise") || has_vol_named!(self, r, "telekinesis") {
             return false;
         }
         item != it::AIRBALLOON
@@ -614,15 +625,15 @@ impl Battle {
     /// answers `null`: Levitate or Eelevate on a Pokémon nothing else grounds or lifts.
     fn levitating(&mut self, r: MonRef) -> Option<u16> {
         if self.field.pseudo.has(Pseudo::Gravity)
-            || self.has_vol_named(r, "ingrain")
-            || self.has_vol_named(r, "smackdown")
+            || has_vol_named!(self, r, "ingrain")
+            || has_vol_named!(self, r, "smackdown")
         {
             return None;
         }
         if !self.ignoring_item(r) && self.mon(r).item == it::IRONBALL {
             return None;
         }
-        if self.has_type(r, Type::Flying) && !(self.has_type(r, Type::Typeless) && self.has_vol_named(r, "roost")) {
+        if self.has_type(r, Type::Flying) && !(self.has_type(r, Type::Typeless) && has_vol_named!(self, r, "roost")) {
             return None;
         }
         if self.suppressing_ability(Some(r)) {
@@ -2438,7 +2449,7 @@ impl Battle {
         if !m.is_active {
             return true;
         }
-        if self.field.pseudo.has(Pseudo::Magicroom) || self.has_vol_named(r, "embargo") {
+        if self.field.pseudo.has(Pseudo::Magicroom) || has_vol_named!(self, r, "embargo") {
             return true;
         }
         ITEMS[m.item as usize].flags & IF_IGNORE_KLUTZ == 0 && self.has_ability(r, ab::KLUTZ)
@@ -2746,7 +2757,7 @@ impl Battle {
             || v.has(VolKind::Dive)
             || v.has(VolKind::Dig)
             || v.has(VolKind::Phantomforce)
-            || self.has_vol_named(r, "shadowforce")
+            || has_vol_named!(self, r, "shadowforce")
     }
 
     /// `Pokemon#getWeight`, in hectograms.
