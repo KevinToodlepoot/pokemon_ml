@@ -17,7 +17,12 @@ use crate::data::*;
 use crate::state::*;
 use crate::trace;
 
-const INLINE_HANDLERS: usize = 12;
+/// Handlers a list holds before it goes to the heap. Four events in five find no handler and nearly all the
+/// rest one (random play over the M-A to M-C teams: 80.2% none, 18.2% one, 1.6% more, 11 the most seen), and
+/// a list is made for each of some 95 events a step, so every handler held inline is paid for 95 times a step.
+const INLINE_HANDLERS: usize = 1;
+/// Room a list takes on the heap at first: 99 in 100 of those that get there never grow.
+const SPILL_HANDLERS: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Handler {
@@ -67,8 +72,8 @@ const BLANK: Handler = Handler {
     index: 0,
 };
 
-/// The handlers collected for one event. Nearly every event has only a few,
-/// so they live in a small inline array; the rare larger set spills to the heap.
+/// The handlers collected for one event. Nearly every event has one at most,
+/// which lives inline; the rare larger set spills to the heap.
 pub(crate) struct HList {
     n: usize,
     inline: [Handler; INLINE_HANDLERS],
@@ -84,6 +89,7 @@ impl HList {
             self.inline[self.n] = h;
         } else {
             if self.spill.is_empty() {
+                self.spill.reserve(SPILL_HANDLERS);
                 self.spill.extend_from_slice(&self.inline[..self.n]);
             }
             self.spill.push(h);
@@ -96,6 +102,7 @@ impl HList {
             self.inline[0] = h;
         } else {
             if self.spill.is_empty() {
+                self.spill.reserve(SPILL_HANDLERS);
                 self.spill.extend_from_slice(&self.inline[..self.n]);
             }
             self.spill.insert(0, h);
